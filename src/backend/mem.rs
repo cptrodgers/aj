@@ -1,6 +1,5 @@
-//! WARNING: Mem is purposing for testing or quick using. It doesn't support Persistent Job.
-//! Don't use in production.
-//! If you want to improve, feel free to contribute
+//! WARNING: Mem is purposing for testing or small application. 
+//! It doesn't support Persistent Mode.
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
@@ -77,8 +76,8 @@ impl Backend for InMemory {
     fn queue_get(&self, queue: &str, count: usize) -> Result<Vec<String>, Error> {
         let mut items = vec![];
         if let Some(queue) = self.queues.lock().unwrap().get(queue) {
-            for _ in 0..count {
-                if let Some(item) = queue.front() {
+            for index in 0..count {
+                if let Some(item) = queue.get(index) {
                     items.push(item.to_string());
                 }
             }
@@ -114,5 +113,126 @@ impl Backend for InMemory {
         } else {
             Ok(None)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::QueueDirection;
+
+    #[test]
+    fn test_queue_push() {
+        let backend = InMemory::default();
+        let queue_name = "test_queue";
+
+        // Push an item to the queue
+        let result = backend.queue_push(queue_name, "item1");
+        assert!(result.is_ok());
+
+        // Check that the queue contains the pushed item
+        let items = backend.queue_get(queue_name, 1).unwrap();
+        assert_eq!(items, vec!["item1".to_string()]);
+
+        // Push another item and check
+        backend.queue_push(queue_name, "item2").unwrap();
+        let items = backend.queue_get(queue_name, 2).unwrap();
+        assert_eq!(items, vec!["item2".to_string(), "item1".to_string()]); // Inserting to front
+    }
+
+    #[test]
+    fn test_queue_move() {
+        let backend = InMemory::default();
+        let from_queue = "from_queue";
+        let to_queue = "to_queue";
+
+        // Push items to the from_queue
+        backend.queue_push(from_queue, "item1").unwrap();
+        backend.queue_push(from_queue, "item2").unwrap();
+
+        // Move one item from the front of from_queue to the back of to_queue
+        let result = backend.queue_move(from_queue, to_queue, 1, QueueDirection::Front, QueueDirection::Back);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), vec!["item2".to_string()]); // item2 is at the front
+
+        // Check that to_queue now contains the moved item
+        let items = backend.queue_get(to_queue, 1).unwrap();
+        assert_eq!(items, vec!["item2".to_string()]);
+    }
+
+    #[test]
+    fn test_queue_remove() {
+        let backend = InMemory::default();
+        let queue_name = "test_queue";
+
+        // Push items to the queue
+        backend.queue_push(queue_name, "item1").unwrap();
+        backend.queue_push(queue_name, "item2").unwrap();
+
+        // Remove an item from the queue
+        let result = backend.queue_remove(queue_name, "item1");
+        assert!(result.is_ok());
+
+        // Ensure the item was removed
+        let items = backend.queue_get(queue_name, 10).unwrap();
+        assert_eq!(items, vec!["item2".to_string()]);
+    }
+
+    #[test]
+    fn test_queue_get() {
+        let backend = InMemory::default();
+        let queue_name = "test_queue";
+
+        // Push multiple items to the queue
+        backend.queue_push(queue_name, "item1").unwrap();
+        backend.queue_push(queue_name, "item2").unwrap();
+        backend.queue_push(queue_name, "item3").unwrap();
+
+        // Retrieve items from the queue
+        let items = backend.queue_get(queue_name, 2).unwrap();
+        assert_eq!(items, vec!["item3".to_string(), "item2".to_string()]); // Insertion is to the front
+    }
+
+    #[test]
+    fn test_queue_count() {
+        let backend = InMemory::default();
+        let queue_name = "test_queue";
+
+        // Initially, the queue should be empty
+        let count = backend.queue_count(queue_name).unwrap();
+        assert_eq!(count, 0);
+
+        // Push some items and check the count
+        backend.queue_push(queue_name, "item1").unwrap();
+        backend.queue_push(queue_name, "item2").unwrap();
+        let count = backend.queue_count(queue_name).unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_storage_upsert_and_get() {
+        let backend = InMemory::default();
+        let hash_name = "test_hash";
+        let key = "key1";
+        let value = "value1";
+
+        // Upsert a key-value pair into the storage
+        let result = backend.storage_upsert(hash_name, key, value.to_string());
+        assert!(result.is_ok());
+
+        // Get the value back from storage
+        let stored_value = backend.storage_get(hash_name, key).unwrap();
+        assert_eq!(stored_value, Some(value.to_string()));
+    }
+
+    #[test]
+    fn test_storage_get_non_existent_key() {
+        let backend = InMemory::default();
+        let hash_name = "test_hash";
+        let key = "non_existent_key";
+
+        // Try to get a non-existent key from the storage
+        let stored_value = backend.storage_get(hash_name, key).unwrap();
+        assert_eq!(stored_value, None);
     }
 }

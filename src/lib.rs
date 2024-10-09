@@ -10,9 +10,9 @@ use actix_rt::System;
 pub mod aj;
 pub mod backend;
 pub mod error;
-pub mod job;
 pub mod queue;
 pub mod util;
+pub mod job;
 
 pub use aj::*;
 pub use backend::*;
@@ -27,13 +27,13 @@ pub use chrono;
 pub use cron;
 pub use serde;
 
-pub fn start_engine() {
+pub fn start() {
     match System::try_current() {
         Some(_) => {
-            info!("Found actix runtime in current thread, re-use it");
+            info!("Found Actix Runtime, re-use it!");
         }
         None => {
-            info!("start an actix runtime in current thread");
+            info!("No Actix Runtime, start new one!");
             let _ = System::new();
         }
     }

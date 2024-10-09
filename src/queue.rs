@@ -119,11 +119,11 @@ where
     pub fn enqueue_with_config(&self, job: Job<M>, config: EnqueueConfig) -> Result<(), Error> {
         let key = job.id.clone();
         let existing_job =
-            get_from_storage::<Job<M>>(self.backend.deref(), &self.storage_name(), &key)?;
+            get_from_storage::<Job<M>>(self.backend.deref(), &key)?;
         if let Some(existing_job) = existing_job {
             if config.override_data {
                 info!("Update exising job with new information: {}", job.id);
-                upsert_to_storage(self.backend.deref(), &self.storage_name(), &key, &job)?;
+                upsert_to_storage(self.backend.deref(), &key, &job)?;
             }
 
             if config.re_run && existing_job.is_done() {
@@ -147,9 +147,7 @@ where
         info!("Enqueue {}", key);
         self.backend
             .queue_push(&self.format_queue_name(JobStatus::Queued), &key)?;
-        job.enqueue();
-        upsert_to_storage(self.backend.deref(), &self.storage_name(), &key, &job)?;
-        Ok(())
+        job.enqueue(self.backend.deref())
     }
 
     pub fn re_enqueue_processing_job(&self, mut job: Job<M>) -> Result<(), Error> {
@@ -160,8 +158,7 @@ where
         }
 
         self.remove_processing_job(&job.id);
-        job.job_status = JobStatus::Queued;
-        upsert_to_storage(self.backend.deref(), &self.storage_name(), &job.id, &job)?;
+        job.enqueue(self.backend.deref())?;
 
         let queued_queue = self.format_queue_name(JobStatus::Queued);
         if let Err(e) = self.backend.queue_push(&queued_queue, job.id.as_str()) {
@@ -181,8 +178,7 @@ where
     pub fn mark_job_is_finished(&self, mut job: Job<M>) -> Result<(), Error> {
         info!("Finish job {}", job.id);
         self.remove_processing_job(&job.id);
-        job.finish();
-        upsert_to_storage(self.backend.deref(), &self.storage_name(), &job.id, &job)?;
+        job.finish(self.backend.deref())?;
 
         let finished_queue = self.format_queue_name(JobStatus::Finished);
         if let Err(e) = self.backend.queue_push(&finished_queue, job.id.as_str()) {
@@ -193,8 +189,7 @@ where
 
     pub fn mark_job_is_failed(&self, mut job: Job<M>) -> Result<(), Error> {
         info!("Failed job {}", job.id);
-        job.fail();
-        upsert_to_storage(self.backend.deref(), &self.storage_name(), &job.id, &job)?;
+        job.fail(self.backend.deref())?;
 
         self.push_failed_job(job.id.as_str());
         Ok(())
@@ -212,7 +207,7 @@ where
     }
 
     pub fn remove_processing_job(&self, job_id: &str) {
-        let processing_queue = self.format_queue_name(JobStatus::Processing);
+        let processing_queue = self.format_queue_name(JobStatus::Running);
         if let Err(reason) = self.backend.queue_remove(&processing_queue, job_id) {
             error!(
                 "[WorkQueue] Cannot remove job {} in processing queue: {:?}",
@@ -222,15 +217,13 @@ where
     }
 
     pub fn get_processing_job_ids(&self, count: usize) -> Result<Vec<String>, Error> {
-        let processing_queue_name = self.format_queue_name(JobStatus::Processing);
+        let processing_queue_name = self.format_queue_name(JobStatus::Running);
         let job_ids = self.backend.queue_get(&processing_queue_name, count)?;
         Ok(job_ids)
     }
 
     pub fn read_job(&self, job_id: &str) -> Result<Option<Job<M>>, Error> {
-        let storage_name = self.storage_name();
-
-        let item = get_from_storage(self.backend.deref(), &storage_name, job_id)?;
+        let item = get_from_storage(self.backend.deref(), job_id)?;
         Ok(item)
     }
 
@@ -251,7 +244,7 @@ where
     }
 
     pub fn pick_jobs_to_process(&self) -> Result<Vec<String>, Error> {
-        let processing_queue = self.format_queue_name(JobStatus::Processing);
+        let processing_queue = self.format_queue_name(JobStatus::Running);
         let total_processing_jobs = self.backend.queue_count(&processing_queue).unwrap_or(0);
         if total_processing_jobs > 0 {
             // There
@@ -260,7 +253,7 @@ where
 
         // Previous procession is complete, import new queued jobs to processing
         let idle_queue_name = self.format_queue_name(JobStatus::Queued);
-        let processing_queue_name = self.format_queue_name(JobStatus::Processing);
+        let processing_queue_name = self.format_queue_name(JobStatus::Running);
         let job_ids = self.backend.queue_move(
             &idle_queue_name,
             &processing_queue_name,
@@ -269,14 +262,12 @@ where
             QueueDirection::Front,
         )?;
 
-        let storage_name = self.storage_name();
         for job_id in &job_ids {
             if let Ok(Some(mut item)) =
-                get_from_storage::<Job<M>>(self.backend.deref(), &storage_name, job_id)
+                get_from_storage::<Job<M>>(self.backend.deref(), &job_id)
             {
-                if item.job_status != JobStatus::Canceled {
-                    item.start_processing();
-                    let _ = upsert_to_storage(self.backend.deref(), &storage_name, job_id, item);
+                if item.context.job_status != JobStatus::Canceled {
+                    item.run(self.backend.deref())?;
                 }
             }
         }
@@ -317,16 +308,17 @@ where
             return self.re_enqueue_processing_job(job);
         }
 
-        let job_output = job.message.execute().await;
-        let job_output = job.message.post_execute(job_output).await;
+        job.data.pre_execute().await;
+        let job_output = job.data.execute().await;
+        let job_output = job.data.post_execute(job_output).await;
         info!(
             "[WorkQueue] Execution complete. Job {} - Result: {job_output:?}",
             job.id
         );
-        if let Some(retry_context) = job.retry.as_mut() {
-            if let Some(next_retry_ms) = job.message.should_retry(retry_context, job_output).await {
+        if let Some(retry_context) = job.context.retry.as_mut() {
+            if let Some(next_retry_ms) = job.data.should_retry(retry_context, job_output).await {
                 info!("[WorkQueue] Retry this job. {}", job.id);
-                job.job_type = JobType::ScheduledAt(next_retry_ms);
+                job.context.job_type = JobType::ScheduledAt(next_retry_ms);
                 return self.re_enqueue_processing_job(job);
             }
         }
@@ -340,20 +332,17 @@ where
     }
 
     pub fn cancel_job(&self, job_id: &str) -> Result<(), Error> {
-        let storage_name = self.storage_name();
         if let Some(mut job) =
-            get_from_storage::<Job<M>>(self.backend.deref(), &storage_name, job_id)?
+            get_from_storage::<Job<M>>(self.backend.deref(), job_id)?
         {
-            job.cancel();
-            upsert_to_storage(self.backend.deref(), &storage_name, job_id, job)?;
+            job.cancel(self.backend.deref())?;
         }
 
         Ok(())
     }
 
     pub fn get_job(&self, job_id: &str) -> Result<Option<Job<M>>, Error> {
-        let storage_name = self.storage_name();
-        let job = get_from_storage::<Job<M>>(self.backend.deref(), &storage_name, job_id)?;
+        let job = get_from_storage::<Job<M>>(self.backend.deref(), job_id)?;
         Ok(job)
     }
 }

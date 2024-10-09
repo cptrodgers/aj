@@ -1,4 +1,4 @@
-//! Backend in AJ support both storage (backend) and queue (broker)
+//! Backend in AJ support both storage and broker
 
 #![allow(clippy::borrowed_box)]
 
@@ -36,22 +36,27 @@ pub trait Backend {
     fn storage_get(&self, hash: &str, key: &str) -> Result<Option<String>, Error>;
 }
 
+pub const STORAGE_HASH: &str = "aj_storage";
+
 pub fn upsert_to_storage<T: Serialize>(
     backend: &dyn Backend,
-    hash: &str,
     key: &str,
     value: T,
 ) -> Result<(), Error> {
     let value = serde_json::to_string(&value).unwrap_or("".into());
-    backend.storage_upsert(hash, key, value)
+    let res = backend.storage_upsert(STORAGE_HASH, key, value);
+    if let Err(e) = &res {
+        warn!("[Storage] Upsert failed {key} Failed {:?}", e);
+    }
+
+    res
 }
 
 pub fn get_from_storage<T: DeserializeOwned>(
     backend: &dyn Backend,
-    hash: &str,
     key: &str,
 ) -> Result<Option<T>, Error> {
-    let value = backend.storage_get(hash, key).ok().flatten();
+    let value = backend.storage_get(STORAGE_HASH, key).ok().flatten();
     let item = match value {
         Some(value) => serde_json::from_str(&value).ok(),
         _ => None,
