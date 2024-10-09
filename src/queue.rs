@@ -262,7 +262,7 @@ where
         )?;
 
         for job_id in &job_ids {
-            if let Ok(Some(mut item)) = get_from_storage::<Job<M>>(self.backend.deref(), &job_id) {
+            if let Ok(Some(mut item)) = get_from_storage::<Job<M>>(self.backend.deref(), job_id) {
                 if item.context.job_status != JobStatus::Canceled {
                     item.run(self.backend.deref())?;
                 }
