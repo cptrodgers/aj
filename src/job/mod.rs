@@ -103,7 +103,7 @@ pub trait Executable {
 
     async fn execute(&self) -> Self::Output;
 
-    async fn post_execute(&self, output: Self::Output) -> Self::Output { 
+    async fn post_execute(&self, output: Self::Output) -> Self::Output {
         output
     }
 
@@ -113,7 +113,7 @@ pub trait Executable {
         false
     }
 
-    // Job will re-run if should_retry return a specific time in the future 
+    // Job will re-run if should_retry return a specific time in the future
     async fn should_retry(
         &self,
         retry_context: &mut Retry,
@@ -207,8 +207,8 @@ where
     }
 
     pub fn is_done(&self) -> bool {
-        self.context.job_status == JobStatus::Finished || 
-        self.context.job_status == JobStatus::Canceled || 
+        self.context.job_status == JobStatus::Finished ||
+        self.context.job_status == JobStatus::Canceled ||
         self.context.job_status == JobStatus::Failed
     }
 
@@ -276,7 +276,7 @@ mod tests {
             .build()
             .unwrap()
     }
-    
+
     #[actix::test]
     async fn test_normal_job() {
         let number = 1;
