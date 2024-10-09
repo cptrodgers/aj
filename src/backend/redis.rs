@@ -15,6 +15,10 @@ impl Redis {
         Self { client }
     }
 
+    pub fn new_with_client(client: Client) -> Self {
+        Self { client }
+    }
+
     pub fn lpush(&self, queue_name: &str, item: &str) -> RedisResult<()> {
         let mut conn = self.client.get_connection()?;
         conn.lpush(queue_name, item)?;
@@ -125,5 +129,168 @@ fn clone_direction(direction: &Direction) -> Direction {
     match direction {
         Direction::Left => Direction::Left,
         Direction::Right => Direction::Right,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use super::*;
+    use crate::types::QueueDirection;
+
+    fn init_redis() -> Redis {
+        let client = Client::open("redis://localhost:6379/").unwrap();
+        let backend = Redis::new_with_client(client.clone());
+        backend
+    }
+
+    fn clean(channel: &str) {
+        let client = Client::open("redis://localhost:6379/").unwrap();
+        client
+            .get_connection()
+            .unwrap()
+            .del::<&str, i32>(channel)
+            .unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn test_queue_push() {
+        let queue_name = Uuid::new_v4().to_string();
+        let backend = init_redis();
+
+        // Push an item to the queue
+        let result = backend.queue_push(&queue_name, "item1");
+        assert!(result.is_ok());
+
+        // Check that the queue contains the pushed item
+        let items = backend.queue_get(&queue_name, 1).unwrap();
+        assert_eq!(items, vec!["item1".to_string()]);
+
+        // Push another item and check
+        backend.queue_push(&queue_name, "item2").unwrap();
+        let items = backend.queue_get(&queue_name, 2).unwrap();
+        assert_eq!(items, vec!["item2".to_string(), "item1".to_string()]); // Inserting to front
+        clean(&queue_name);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_queue_move() {
+        let backend = init_redis();
+
+        let from_queue = "from_queue";
+        let to_queue = "to_queue";
+
+        // Push items to the from_queue
+        backend.queue_push(from_queue, "item1").unwrap();
+        backend.queue_push(from_queue, "item2").unwrap();
+
+        // Move one item from the front of from_queue to the back of to_queue
+        let result = backend.queue_move(
+            from_queue,
+            to_queue,
+            1,
+            QueueDirection::Front,
+            QueueDirection::Back,
+        );
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), vec!["item2".to_string()]); // item2 is at the front
+
+        // Check that to_queue now contains the moved item
+        let items = backend.queue_get(to_queue, 1).unwrap();
+        assert_eq!(items, vec!["item2".to_string()]);
+
+        clean(&from_queue);
+        clean(&to_queue);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_queue_remove() {
+        let queue_name = Uuid::new_v4().to_string();
+        let backend = init_redis();
+
+        // Push items to the queue
+        backend.queue_push(&queue_name, "item1").unwrap();
+        backend.queue_push(&queue_name, "item2").unwrap();
+
+        // Remove an item from the queue
+        let result = backend.queue_remove(&queue_name, "item1");
+        assert!(result.is_ok());
+
+        // Ensure the item was removed
+        let items = backend.queue_get(&queue_name, 10).unwrap();
+        assert_eq!(items, vec!["item2".to_string()]);
+
+        clean(&queue_name);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_queue_get() {
+        let queue_name = Uuid::new_v4().to_string();
+        let backend = init_redis();
+
+        // Push multiple items to the queue
+        backend.queue_push(&queue_name, "item1").unwrap();
+        backend.queue_push(&queue_name, "item2").unwrap();
+        backend.queue_push(&queue_name, "item3").unwrap();
+
+        // Retrieve items from the queue
+        let items = backend.queue_get(&queue_name, 2).unwrap();
+        assert_eq!(items, vec!["item3".to_string(), "item2".to_string()]); // Insertion is to the front
+
+        clean(&queue_name);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_queue_count() {
+        let queue_name = Uuid::new_v4().to_string();
+        let backend = init_redis();
+
+        // Initially, the queue should be empty
+        let count = backend.queue_count(&queue_name).unwrap();
+        assert_eq!(count, 0);
+
+        // Push some items and check the count
+        backend.queue_push(&queue_name, "item1").unwrap();
+        backend.queue_push(&queue_name, "item2").unwrap();
+        let count = backend.queue_count(&queue_name).unwrap();
+        assert_eq!(count, 2);
+
+        clean(&queue_name)
+    }
+
+    #[test]
+    #[ignore]
+    fn test_storage_upsert_and_get() {
+        let backend = init_redis();
+        let hash_name = "test_hash";
+        let key = "key1";
+        let value = "value1";
+
+        // Upsert a key-value pair into the storage
+        let result = backend.storage_upsert(hash_name, key, value.to_string());
+        assert!(result.is_ok());
+
+        // Get the value back from storage
+        let stored_value = backend.storage_get(hash_name, key).unwrap();
+        assert_eq!(stored_value, Some(value.to_string()));
+    }
+
+    #[test]
+    #[ignore]
+    fn test_storage_get_non_existent_key() {
+        let backend = init_redis();
+
+        let hash_name = "test_hash";
+        let key = "non_existent_key";
+
+        // Try to get a non-existent key from the storage
+        let stored_value = backend.storage_get(hash_name, key).unwrap();
+        assert_eq!(stored_value, None);
     }
 }

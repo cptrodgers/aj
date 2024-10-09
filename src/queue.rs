@@ -118,8 +118,7 @@ where
 
     pub fn enqueue_with_config(&self, job: Job<M>, config: EnqueueConfig) -> Result<(), Error> {
         let key = job.id.clone();
-        let existing_job =
-            get_from_storage::<Job<M>>(self.backend.deref(), &key)?;
+        let existing_job = get_from_storage::<Job<M>>(self.backend.deref(), &key)?;
         if let Some(existing_job) = existing_job {
             if config.override_data {
                 info!("Update exising job with new information: {}", job.id);
@@ -263,9 +262,7 @@ where
         )?;
 
         for job_id in &job_ids {
-            if let Ok(Some(mut item)) =
-                get_from_storage::<Job<M>>(self.backend.deref(), &job_id)
-            {
+            if let Ok(Some(mut item)) = get_from_storage::<Job<M>>(self.backend.deref(), &job_id) {
                 if item.context.job_status != JobStatus::Canceled {
                     item.run(self.backend.deref())?;
                 }
@@ -332,9 +329,7 @@ where
     }
 
     pub fn cancel_job(&self, job_id: &str) -> Result<(), Error> {
-        if let Some(mut job) =
-            get_from_storage::<Job<M>>(self.backend.deref(), job_id)?
-        {
+        if let Some(mut job) = get_from_storage::<Job<M>>(self.backend.deref(), job_id)? {
             job.cancel(self.backend.deref())?;
         }
 

@@ -10,9 +10,9 @@ use actix_rt::System;
 pub mod aj;
 pub mod backend;
 pub mod error;
+pub mod job;
 pub mod queue;
 pub mod util;
-pub mod job;
 
 pub use aj::*;
 pub use backend::*;

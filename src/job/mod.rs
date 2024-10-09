@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::str::FromStr;
 
+use super::retry::*;
 use crate::types::{upsert_to_storage, Backend};
 use crate::util::{get_now, get_now_as_ms};
 use crate::Error;
-use super::retry::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct CronContext {
@@ -207,9 +207,9 @@ where
     }
 
     pub fn is_done(&self) -> bool {
-        self.context.job_status == JobStatus::Finished ||
-        self.context.job_status == JobStatus::Canceled ||
-        self.context.job_status == JobStatus::Failed
+        self.context.job_status == JobStatus::Finished
+            || self.context.job_status == JobStatus::Canceled
+            || self.context.job_status == JobStatus::Failed
     }
 
     pub fn enqueue(&mut self, backend: &dyn Backend) -> Result<(), Error> {

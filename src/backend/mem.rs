@@ -1,4 +1,4 @@
-//! WARNING: Mem is purposing for testing or small application. 
+//! WARNING: Mem is purposing for testing or small application.
 //! It doesn't support Persistent Mode.
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -151,7 +151,13 @@ mod tests {
         backend.queue_push(from_queue, "item2").unwrap();
 
         // Move one item from the front of from_queue to the back of to_queue
-        let result = backend.queue_move(from_queue, to_queue, 1, QueueDirection::Front, QueueDirection::Back);
+        let result = backend.queue_move(
+            from_queue,
+            to_queue,
+            1,
+            QueueDirection::Front,
+            QueueDirection::Back,
+        );
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), vec!["item2".to_string()]); // item2 is at the front
 

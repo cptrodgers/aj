@@ -71,7 +71,7 @@ mod tests {
         let retry = Retry::default();
         assert_eq!(retry.retried_times, 0);
         assert_eq!(retry.max_retries, Some(3));
-        
+
         if let RetryStrategy::Interval(duration) = retry.strategy {
             assert_eq!(duration, Duration::milliseconds(100));
         } else {
@@ -81,22 +81,38 @@ mod tests {
 
     #[test]
     fn test_should_retry_with_max_retries() {
-        let retry = Retry::new(2, Some(3), RetryStrategy::Interval(Duration::milliseconds(100)));
+        let retry = Retry::new(
+            2,
+            Some(3),
+            RetryStrategy::Interval(Duration::milliseconds(100)),
+        );
         assert!(retry.should_retry());
-        
-        let retry = Retry::new(3, Some(3), RetryStrategy::Interval(Duration::milliseconds(100)));
+
+        let retry = Retry::new(
+            3,
+            Some(3),
+            RetryStrategy::Interval(Duration::milliseconds(100)),
+        );
         assert!(!retry.should_retry());
     }
 
     #[test]
     fn test_should_retry_with_no_max_retries() {
-        let retry = Retry::new(2, None, RetryStrategy::Interval(Duration::milliseconds(100)));
+        let retry = Retry::new(
+            2,
+            None,
+            RetryStrategy::Interval(Duration::milliseconds(100)),
+        );
         assert!(retry.should_retry()); // Should retry indefinitely
     }
 
     #[test]
     fn test_retry_at_increments_retried_times() {
-        let mut retry = Retry::new(0, Some(3), RetryStrategy::Interval(Duration::milliseconds(100)));
+        let mut retry = Retry::new(
+            0,
+            Some(3),
+            RetryStrategy::Interval(Duration::milliseconds(100)),
+        );
         let before = retry.retried_times;
         let next_retry_time = retry.retry_at(Some(mock_now()));
 
