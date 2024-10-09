@@ -305,9 +305,7 @@ where
             return self.re_enqueue_processing_job(job);
         }
 
-        job.data.pre_execute().await;
-        let job_output = job.data.execute().await;
-        let job_output = job.data.post_execute(job_output).await;
+        let job_output = job.execute().await;
         info!(
             "[WorkQueue] Execution complete. Job {} - Result: {job_output:?}",
             job.id
@@ -404,34 +402,6 @@ where
     WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
 {
     addr.do_send::<CancelJob>(CancelJob { job_id });
-}
-
-#[derive(Message, Debug)]
-#[rtype(result = "()")]
-pub struct UpdateConfig {
-    pub config: WorkQueueConfig,
-}
-
-impl<M> Handler<UpdateConfig> for WorkQueue<M>
-where
-    M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-
-    Self: Actor<Context = Context<Self>>,
-{
-    type Result = ();
-
-    fn handle(&mut self, msg: UpdateConfig, _: &mut Self::Context) -> Self::Result {
-        self.config = msg.config;
-    }
-}
-
-pub fn update_queue_config<M>(addr: Addr<WorkQueue<M>>, config: WorkQueueConfig)
-where
-    M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-    WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
-{
-    let update_config_mgs = UpdateConfig { config };
-    addr.do_send::<UpdateConfig>(update_config_mgs);
 }
 
 #[derive(Message, Debug)]

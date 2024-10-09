@@ -72,10 +72,10 @@ mod tests {
         assert_eq!(retry.retried_times, 0);
         assert_eq!(retry.max_retries, Some(3));
 
-        if let RetryStrategy::Interval(duration) = retry.strategy {
-            assert_eq!(duration, Duration::milliseconds(100));
-        } else {
-            panic!("Unexpected retry strategy");
+        match retry.strategy {
+            RetryStrategy::Interval(duration) => {
+                assert_eq!(duration, Duration::try_milliseconds(100).unwrap())
+            }
         }
     }
 
@@ -84,14 +84,14 @@ mod tests {
         let retry = Retry::new(
             2,
             Some(3),
-            RetryStrategy::Interval(Duration::milliseconds(100)),
+            RetryStrategy::Interval(Duration::try_milliseconds(100).unwrap()),
         );
         assert!(retry.should_retry());
 
         let retry = Retry::new(
             3,
             Some(3),
-            RetryStrategy::Interval(Duration::milliseconds(100)),
+            RetryStrategy::Interval(Duration::try_milliseconds(100).unwrap()),
         );
         assert!(!retry.should_retry());
     }
@@ -101,7 +101,7 @@ mod tests {
         let retry = Retry::new(
             2,
             None,
-            RetryStrategy::Interval(Duration::milliseconds(100)),
+            RetryStrategy::Interval(Duration::try_milliseconds(100).unwrap()),
         );
         assert!(retry.should_retry()); // Should retry indefinitely
     }
@@ -111,7 +111,7 @@ mod tests {
         let mut retry = Retry::new(
             0,
             Some(3),
-            RetryStrategy::Interval(Duration::milliseconds(100)),
+            RetryStrategy::Interval(Duration::try_milliseconds(100).unwrap()),
         );
         let before = retry.retried_times;
         let next_retry_time = retry.retry_at(Some(mock_now()));
@@ -120,7 +120,7 @@ mod tests {
         assert_eq!(retry.retried_times, before + 1);
 
         // Mock current time and check retry_at is calculated correctly
-        let expected_retry_time = mock_now() + Duration::milliseconds(100);
+        let expected_retry_time = mock_now() + Duration::try_milliseconds(100).unwrap();
         assert_eq!(next_retry_time, expected_retry_time);
     }
 }

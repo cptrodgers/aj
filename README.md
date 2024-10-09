@@ -1,44 +1,40 @@
-# aj 
+# aj
 ![ci status](https://github.com/cptrodgers/aj/actions/workflows/test-and-build.yml/badge.svg)
 
 aj is background jobs solution (based on actix framework - Actor Model).
 
 ## Features & Docs
 
-- [x] Jobs.
-  - [x] Type: Instantly, Schedule (Run at specific time), Cron.
-  - [x] Update job
-  - [x] Cancel job
-  - [x] Get job
-- [x] Retry mechanism
-  - [x] Customizable failed and retry logic: You can handle case that you want to retry based on job output.
-  - [x] Configurable:
-    - [x] Max times
-    - [x] Strategy:
-      - [x] Interval Strategy
-      - [ ] Exponential Strategy
-- [x] Async (execution).
-- [x] Persistent.
-- [x] Flexible Broker and Backend with `Backend` trait: You can choose your database or storage engine that you want to use.
-  - [x] Native support: 
-    - [x] Redis
-    - [x] In-memory (Not recommend for production, it does not support persisted job)
-  - [x] `Backend` trait: you can implement your backend by your demand.
-- [x] Custom processing speed.
-  - [x] Scan job period (tick).
-  - [x] Number of job per tick.
-- [ ] Multiple Node (Distributed Mode)
-- [ ] DAG (https://en.wikipedia.org/wiki/Directed_acyclic_graph)
-- [ ] APIs
-- [ ] Dashboard UI
-- [ ] Integration
 
-[examples](https://github.com/openexamhq/aj/tree/master/examples)
+- [x] Instant Job, Scheduled Job, and Cron Job
+- [x] Update Job
+- [x] Cancel Job
+- [x] Get Job Information
+- [x] Retry:
+  - [x] Max Attempts
+  - [x] Strategy:
+    - [x] Interval Strategy
+    - [ ] Exponential Strategy
+  - [x] Custom Retry Logic: You can control when the job will retry by adjusting the `should_retry` logic.
+  - [ ] Manual Retry
+- [x] Flexible Backend and Broker:
+  - [x] Native Support:
+    - [x] Redis
+    - [x] In-memory (Not recommended for production; does not support persisted jobs)
+  - [x] `Backend` Trait: AJ can work with any storage that implements the `Backend` trait.
+- [x] Custom Processing Speed of WorkQueue:
+  - [x] Job Scan Period (tick)
+  - [x] Number of Jobs per Tick
+- [ ] DAG (Directed Acyclic Graph) (https://en.wikipedia.org/wiki/Directed_acyclic_graph)
+- [ ] Multiple Node (Distributed Mode)
+- [ ] APIs
+
 
 ## Using by:
 
 - [ZenClass](https://zenclass.co) - ZenClass is an education platform that help you build your class.
 - [Ikigai](https://ikigai.li) - Ikigai is an AI open assignment platform.
+- [Record Wise](https://recordwise.app)
 
 If you're using `aj`, please contact us to update the list.
 

@@ -61,7 +61,7 @@ mod tests {
         // Test conversion of a specific known timestamp (for reproducibility)
         let ms = 1_600_000_000_000; // Example timestamp in milliseconds
         let datetime = get_ms_as_datetime(ms);
-        let expected_datetime = Utc.timestamp(1_600_000_000, 0); // Expected equivalent DateTime
+        let expected_datetime = Utc.timestamp_opt(1_600_000_000, 0).unwrap(); // Expected equivalent DateTime
         assert_eq!(datetime, expected_datetime);
     }
 }
