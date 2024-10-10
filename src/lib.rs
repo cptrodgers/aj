@@ -1,3 +1,5 @@
+#![allow(clippy::field_reassign_with_default)]
+
 #[macro_use]
 extern crate log;
 #[macro_use]

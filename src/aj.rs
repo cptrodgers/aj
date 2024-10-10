@@ -8,7 +8,7 @@ use std::any::{Any, TypeId};
 use crate::job::Job;
 use crate::queue::{cancel_job, enqueue_job, WorkQueue};
 use crate::types::Backend;
-use crate::{get_job, EnqueueConfig, Executable};
+use crate::{get_job, EnqueueConfig, Error, Executable};
 
 lazy_static! {
     static ref QUEUE_REGISTRY: Registry = Registry::default();
@@ -70,7 +70,7 @@ impl AJ {
         None
     }
 
-    pub fn enqueue_job<M>(job: Job<M>, config: EnqueueConfig) -> bool
+    pub async fn enqueue_job<M>(job: Job<M>, config: EnqueueConfig) -> Result<(), Error>
     where
         M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
 
@@ -78,14 +78,13 @@ impl AJ {
     {
         let addr: Option<Addr<WorkQueue<M>>> = AJ::get_queue_address();
         if let Some(queue_addr) = addr {
-            enqueue_job(queue_addr, job, config);
-            true
+            enqueue_job(queue_addr, job, config).await
         } else {
-            false
+            Err(Error::NoQueueRegister)
         }
     }
 
-    pub fn cancel_job<M>(job_id: String) -> bool
+    pub async fn cancel_job<M>(job_id: String) -> Result<(), Error>
     where
         M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
 
@@ -93,10 +92,9 @@ impl AJ {
     {
         let addr: Option<Addr<WorkQueue<M>>> = AJ::get_queue_address();
         if let Some(queue_addr) = addr {
-            cancel_job(queue_addr, job_id);
-            true
+            cancel_job(queue_addr, job_id).await
         } else {
-            false
+            Err(Error::NoQueueRegister)
         }
     }
 
@@ -113,12 +111,12 @@ impl AJ {
         }
     }
 
-    pub fn add_job<M>(job: Job<M>) -> bool
+    pub async fn add_job<M>(job: Job<M>) -> Result<(), Error>
     where
         M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
         WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
     {
         let config = EnqueueConfig::new_re_run();
-        Self::enqueue_job(job, config)
+        Self::enqueue_job(job, config).await
     }
 }

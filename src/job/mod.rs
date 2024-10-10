@@ -265,6 +265,10 @@ where
         }
     }
 
+    pub fn is_running(&self) -> bool {
+        self.context.job_status == JobStatus::Running
+    }
+
     pub fn is_cancelled(&self) -> bool {
         self.context.job_status == JobStatus::Canceled
     }
