@@ -1,6 +1,7 @@
 pub mod retry;
 
 use async_trait::async_trait;
+use chrono::Duration;
 use chrono::{serde::ts_microseconds, serde::ts_microseconds_option, DateTime, Utc};
 use cron::Schedule;
 use serde::{Deserialize, Serialize};
@@ -43,7 +44,11 @@ impl Default for JobType {
 }
 
 impl JobType {
-    pub fn init_cron(expression: &str, context: CronContext) -> Result<Self, Error> {
+    pub fn new_schedule(schedule_at: DateTime<Utc>) -> Self {
+        JobType::ScheduledAt(schedule_at)
+    }
+
+    pub fn new_cron(expression: &str, context: CronContext) -> Result<Self, Error> {
         let schedule = Schedule::from_str(expression)?;
         let now = get_now();
         let next_tick = schedule.after(&now).next().unwrap_or(now);
@@ -84,6 +89,8 @@ pub struct JobContext {
     pub complete_at: Option<i64>,
     #[builder(default, setter(skip))]
     pub cancel_at: Option<i64>,
+    #[builder(default, setter(skip))]
+    pub run_count: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Builder)]
@@ -95,15 +102,62 @@ pub struct Job<M: Executable + Clone> {
     pub data: M,
 }
 
+impl<M> JobBuilder<M>
+where
+    M: Executable + Clone,
+{
+    pub fn schedule_at(&mut self, schedule_at: DateTime<Utc>) -> &mut Self {
+        if let Some(context) = &mut self.context {
+            context.job_type = JobType::new_schedule(schedule_at);
+        } else {
+            let mut context = JobContext::default();
+            context.job_type = JobType::new_schedule(schedule_at);
+            self.context(context);
+        }
+
+        self
+    }
+
+    pub fn delay(&mut self, after: Duration) -> &mut Self {
+        let schedule_at = get_now() + after;
+        self.schedule_at(schedule_at)
+    }
+
+    pub fn cron(&mut self, expression: &str) -> &mut Self {
+        let cron = JobType::new_cron(expression, CronContext::default()).unwrap();
+        if let Some(context) = &mut self.context {
+            context.job_type = cron;
+        } else {
+            let mut context = JobContext::default();
+            context.job_type = cron;
+            self.context(context);
+        }
+
+        self
+    }
+
+    pub fn retry(&mut self, retry: Retry) -> &mut Self {
+        if let Some(context) = &mut self.context {
+            context.retry = Some(retry);
+        } else {
+            let mut context = JobContext::default();
+            context.retry = Some(retry);
+            self.context(context);
+        }
+
+        self
+    }
+}
+
 #[async_trait]
 pub trait Executable {
     type Output: Debug + Send;
 
-    async fn pre_execute(&self) {}
+    async fn pre_execute(&self, _context: &'_ JobContext) {}
 
-    async fn execute(&self) -> Self::Output;
+    async fn execute(&self, _context: &'_ JobContext) -> Self::Output;
 
-    async fn post_execute(&self, output: Self::Output) -> Self::Output {
+    async fn post_execute(&self, output: Self::Output, _context: &'_ JobContext) -> Self::Output {
         output
     }
 
@@ -131,8 +185,17 @@ pub trait Executable {
 
 impl<M> Job<M>
 where
-    M: Executable + Clone + Serialize,
+    M: Executable + Clone + Serialize + Sync,
 {
+    pub async fn execute(&mut self) -> <M as Executable>::Output {
+        self.data.pre_execute(&self.context).await;
+        let output = self.data.execute(&self.context).await;
+        let output = self.data.post_execute(output, &self.context).await;
+        self.context.run_count += 1;
+
+        output
+    }
+
     pub fn is_ready(&self) -> bool {
         let now = get_now();
         match &self.context.job_type {
@@ -202,6 +265,10 @@ where
         }
     }
 
+    pub fn is_running(&self) -> bool {
+        self.context.job_status == JobStatus::Running
+    }
+
     pub fn is_cancelled(&self) -> bool {
         self.context.job_status == JobStatus::Canceled
     }
@@ -250,6 +317,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[derive(Default, Debug, Clone, Serialize)]
@@ -261,12 +330,8 @@ mod tests {
     impl Executable for TestJob {
         type Output = i32;
 
-        async fn execute(&self) -> Self::Output {
+        async fn execute(&self, _context: &JobContext) -> Self::Output {
             self.number
-        }
-
-        async fn post_execute(&self, output: Self::Output) -> Self::Output {
-            output + 1
         }
     }
 
@@ -280,14 +345,42 @@ mod tests {
     #[actix::test]
     async fn test_normal_job() {
         let number = 1;
-        let default_job = default_job(number);
+        let mut default_job = default_job(number);
 
         assert!(default_job.is_ready());
         assert!(default_job.context.job_status == JobStatus::Queued);
         assert!(default_job.context.job_type == JobType::Normal);
 
-        let output = default_job.data.execute().await;
+        let output = default_job.execute().await;
         assert_eq!(output, number);
-        assert_eq!(default_job.data.post_execute(output).await, 2);
+    }
+
+    #[actix::test]
+    async fn test_schedule_job() {
+        let number = 1;
+        let schedule_at = get_now() + Duration::from_secs(1);
+        let schedule_job = JobBuilder::default()
+            .data(TestJob { number })
+            .schedule_at(schedule_at)
+            .build()
+            .unwrap();
+
+        assert!(!schedule_job.is_ready());
+        assert!(schedule_job.context.job_type == JobType::ScheduledAt(schedule_at))
+    }
+
+    #[actix::test]
+    async fn test_cron_job() {
+        let number = 1;
+        let expression = "0 1 1 1 * * *";
+        let schedule_job = JobBuilder::default()
+            .data(TestJob { number })
+            .cron(expression)
+            .build()
+            .unwrap();
+
+        assert!(!schedule_job.is_ready());
+        let expected_cron = JobType::new_cron(expression, CronContext::default()).unwrap();
+        assert!(schedule_job.context.job_type == expected_cron);
     }
 }

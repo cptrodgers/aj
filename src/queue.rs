@@ -116,25 +116,28 @@ where
         })
     }
 
-    pub fn enqueue_with_config(&self, job: Job<M>, config: EnqueueConfig) -> Result<(), Error> {
+    pub fn run_with_config(&self, job: Job<M>, config: EnqueueConfig) -> Result<(), Error> {
         let key = job.id.clone();
         let existing_job = get_from_storage::<Job<M>>(self.backend.deref(), &key)?;
         if let Some(existing_job) = existing_job {
-            if config.override_data {
-                info!("Update exising job with new information: {}", job.id);
+            if config.override_data && !existing_job.is_running() {
+                info!(
+                    "[WorkQueue] Update exising job with new job data: {}",
+                    job.id
+                );
                 upsert_to_storage(self.backend.deref(), &key, &job)?;
+            } else {
+                info!(
+                    "[WorkQueue] Job is running, skip update job data: {}",
+                    job.id
+                );
             }
 
             if config.re_run && existing_job.is_done() {
-                info!("Job {} is finished but config want re-run", existing_job.id);
+                info!("[WorkQueue] Re run job {}", existing_job.id);
                 self.enqueue(job)?;
-                return Ok(());
             }
 
-            warn!(
-                "Job {} is existing but not match any situations, skip!",
-                existing_job.id
-            );
             return Ok(());
         }
 
@@ -143,16 +146,20 @@ where
 
     pub fn enqueue(&self, mut job: Job<M>) -> Result<(), Error> {
         let key = job.id.clone();
-        info!("Enqueue {}", key);
+        info!("[WorkQueue] New Job {}", key);
         self.backend
             .queue_push(&self.format_queue_name(JobStatus::Queued), &key)?;
         job.enqueue(self.backend.deref())
     }
 
-    pub fn re_enqueue_processing_job(&self, mut job: Job<M>) -> Result<(), Error> {
-        debug!("[WorkQueue] Re Enqueue job {}", job.id);
-        if job.is_cancelled() {
-            error!("[WorkQueue] Cannot re enqueue canceled job {}", job.id);
+    // Push processing job if
+    // 1. Job is not ready `job.is_ready()`
+    // 2. Job is done and still have next tick (cron job).
+    // 3. Job ran failed and have retry logic
+    pub fn re_run_processing_job(&self, mut job: Job<M>) -> Result<(), Error> {
+        debug!("[WorkQueue] Re-run job {}", job.id);
+        if !job.is_cancelled() {
+            error!("[WorkQueue] Cannot re-run canceled job {}", job.id,);
             return Ok(());
         }
 
@@ -189,14 +196,13 @@ where
     pub fn mark_job_is_failed(&self, mut job: Job<M>) -> Result<(), Error> {
         info!("Failed job {}", job.id);
         job.fail(self.backend.deref())?;
-
         self.push_failed_job(job.id.as_str());
         Ok(())
     }
 
     pub fn push_failed_job(&self, job_id: &str) {
         self.remove_processing_job(job_id);
-        let failed_queue = self.format_failed_queue_name();
+        let failed_queue = self.format_queue_name(JobStatus::Failed);
         if let Err(e) = self.backend.queue_push(&failed_queue, job_id) {
             error!(
                 "[WorkQueue] Cannot move to failed queue {}: {:?}",
@@ -292,22 +298,19 @@ where
         }
     }
 
-    // https://github.com/ikigai-hq/aj/blob/master/docs/single_node_basic_flow.png
     pub async fn execute_job(&self, mut job: Job<M>) -> Result<(), Error> {
-        // If job is cancelled -> move to cancel queued
+        // If job is cancelled, move to cancel queued
         if job.is_cancelled() {
             self.mark_job_is_canceled(job.id.as_str());
             return Ok(());
         }
 
-        // If job is not ready -> Move back to queue
+        // If job is not ready, move back to queued queue
         if !job.is_ready() {
-            return self.re_enqueue_processing_job(job);
+            return self.re_run_processing_job(job);
         }
 
-        job.data.pre_execute().await;
-        let job_output = job.data.execute().await;
-        let job_output = job.data.post_execute(job_output).await;
+        let job_output = job.execute().await;
         info!(
             "[WorkQueue] Execution complete. Job {} - Result: {job_output:?}",
             job.id
@@ -316,13 +319,13 @@ where
             if let Some(next_retry_ms) = job.data.should_retry(retry_context, job_output).await {
                 info!("[WorkQueue] Retry this job. {}", job.id);
                 job.context.job_type = JobType::ScheduledAt(next_retry_ms);
-                return self.re_enqueue_processing_job(job);
+                return self.re_run_processing_job(job);
             }
         }
 
         // If this is interval job (has next tick) -> re_enqueue it
         if let Some(next_job) = job.next_tick() {
-            return self.re_enqueue_processing_job(next_job);
+            return self.re_run_processing_job(next_job);
         }
 
         self.mark_job_is_finished(job)
@@ -343,7 +346,7 @@ where
 }
 
 #[derive(Message, Debug)]
-#[rtype(result = "()")]
+#[rtype(result = "Result<(), Error>")]
 pub struct Enqueue<M: Executable + Clone + Send + Sync + 'static>(pub Job<M>, pub EnqueueConfig);
 
 impl<M> Handler<Enqueue<M>> for WorkQueue<M>
@@ -352,31 +355,28 @@ where
 
     Self: Actor<Context = Context<Self>>,
 {
-    type Result = ();
+    type Result = Result<(), Error>;
 
     fn handle(&mut self, msg: Enqueue<M>, _: &mut Self::Context) -> Self::Result {
-        let error_text = format!(
-            "Cannot insert new job {:?} to queue {}",
-            serde_json::to_string(&msg.0),
-            self.name
-        );
-        if self.enqueue_with_config(msg.0, msg.1).is_err() {
-            error!("{}", error_text)
-        }
+        self.run_with_config(msg.0, msg.1)
     }
 }
 
-pub fn enqueue_job<M>(addr: Addr<WorkQueue<M>>, job: Job<M>, config: EnqueueConfig)
+pub async fn enqueue_job<M>(
+    addr: Addr<WorkQueue<M>>,
+    job: Job<M>,
+    config: EnqueueConfig,
+) -> Result<(), Error>
 where
     M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
 
     WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
 {
-    addr.do_send::<Enqueue<M>>(Enqueue(job, config));
+    addr.send::<Enqueue<M>>(Enqueue(job, config)).await?
 }
 
 #[derive(Message, Debug)]
-#[rtype(result = "()")]
+#[rtype(result = "Result<(), Error>")]
 pub struct CancelJob {
     pub job_id: String,
 }
@@ -387,51 +387,21 @@ where
 
     Self: Actor<Context = Context<Self>>,
 {
-    type Result = ();
+    type Result = Result<(), Error>;
 
     fn handle(&mut self, msg: CancelJob, _: &mut Self::Context) -> Self::Result {
         let job_id = msg.job_id;
-        if let Err(e) = self.cancel_job(&job_id) {
-            error!("Cannot cancel job {job_id}: {:?}", e);
-        }
+        self.cancel_job(&job_id)
     }
 }
 
-pub fn cancel_job<M>(addr: Addr<WorkQueue<M>>, job_id: String)
+pub async fn cancel_job<M>(addr: Addr<WorkQueue<M>>, job_id: String) -> Result<(), Error>
 where
     M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
 
     WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
 {
-    addr.do_send::<CancelJob>(CancelJob { job_id });
-}
-
-#[derive(Message, Debug)]
-#[rtype(result = "()")]
-pub struct UpdateConfig {
-    pub config: WorkQueueConfig,
-}
-
-impl<M> Handler<UpdateConfig> for WorkQueue<M>
-where
-    M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-
-    Self: Actor<Context = Context<Self>>,
-{
-    type Result = ();
-
-    fn handle(&mut self, msg: UpdateConfig, _: &mut Self::Context) -> Self::Result {
-        self.config = msg.config;
-    }
-}
-
-pub fn update_queue_config<M>(addr: Addr<WorkQueue<M>>, config: WorkQueueConfig)
-where
-    M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-    WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
-{
-    let update_config_mgs = UpdateConfig { config };
-    addr.do_send::<UpdateConfig>(update_config_mgs);
+    addr.send::<CancelJob>(CancelJob { job_id }).await?
 }
 
 #[derive(Message, Debug)]
