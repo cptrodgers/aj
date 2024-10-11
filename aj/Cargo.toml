@@ -1,0 +1,34 @@
+[package]
+name = "aj"
+version = "0.5.1"
+edition = "2021"
+authors = ["cptrodgers <me@cptrodgers.com>"]
+description = "Background Job based on Actix"
+readme = "README.md"
+repository = "https://github.com/ikigai-hq/aj"
+license = "MIT OR Apache-2.0"
+keywords = ["background-job", "cron", "schedule", "interval"]
+include = [
+    "**/*.rs",
+    "Cargo.toml",
+]
+
+[lib]
+name = "aj"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+uuid = { version = "1.8", features = ["serde", "v4"] }
+redis = "0.25.3"
+cron = "0.12.0"
+actix = "0.13.0"
+actix-rt = "2.2"
+serde = { version = "1.0.64", features = ["derive"] }
+serde_json = "1.0.64"
+serde_with = { version = "3.6.1", features = ["chrono_0_4"] }
+chrono = { version = "0.4.34" }
+log = "0.4"
+lazy_static = { version = "1.4.0" }
+async-trait = "0.1.74"
+dashmap = "5.5.3"
+derive_builder = "0.20.0"

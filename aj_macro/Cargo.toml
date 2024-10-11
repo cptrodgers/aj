@@ -1,0 +1,16 @@
+[package]
+name = "aj_macro"
+version = "0.5.1"
+edition = "2021"
+authors = ["cptrodgers <me@cptrodgers.com>"]
+description = "Derive Macro for aj"
+readme = "README.md"
+repository = "https://github.com/ikigai-hq/aj"
+license = "MIT OR Apache-2.0"
+keywords = ["background-job", "cron", "schedule", "interval"]
+include = [
+    "**/*.rs",
+    "Cargo.toml",
+]
+
+[dependencies]
