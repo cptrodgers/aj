@@ -3,8 +3,31 @@
 
 aj is background jobs solution (based on actix framework - Actor Model).
 
-## Features & Docs
 
+```rust
+use aj::{
+    async_trait::async_trait,
+    serde::{Deserialize, Serialize},
+    BackgroundJob, Executable, JobBuilder, JobContext, AJ,
+};
+
+#[derive(BackgroundJob, Serialize, Deserialize, Debug, Clone)]
+pub struct AJob;
+
+#[async_trait]
+impl Executable for AJob {
+    type Output = ();
+
+    async fn execute(&self, _context: &JobContext) -> Self::Output {
+        print!("Hello");
+    }
+}
+
+let job = JobBuilder::default().data(AJob).build().unwrap();
+job.apply().await;
+```
+
+## Features & Docs
 
 - [x] Instant Job, Scheduled Job, and Cron Job
 - [x] Update Job
