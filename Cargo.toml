@@ -1,2 +1,2 @@
 [workspace]
-members = ["aj", "aj_macro"]
+members = ["aj", "aj_core", "aj_macro"]

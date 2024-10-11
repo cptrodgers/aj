@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["cptrodgers <me@cptrodgers.com>"]
 description = "Derive Macro for aj"
 readme = "README.md"
-repository = "https://github.com/ikigai-hq/aj"
+repository = "https://github.com/cptrodgers/aj"
 license = "MIT OR Apache-2.0"
 keywords = ["background-job", "cron", "schedule", "interval"]
 include = [
@@ -13,4 +13,11 @@ include = [
     "Cargo.toml",
 ]
 
+[lib]
+proc-macro = true
+
 [dependencies]
+syn = "2.0"
+quote = "1.0"
+proc-macro2 = "1.0"
+aj_core = { version = "=0.5.1", path = "../aj_core" }

@@ -1,14 +1,21 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+extern crate proc_macro;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+use proc_macro::TokenStream;
+use quote::quote;
+use syn::{parse_macro_input, DeriveInput};
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+#[proc_macro_derive(BackgroundJob, attributes(aj))]
+pub fn background_job_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = input.ident;
+
+    let expanded = quote! {
+        impl BackgroundJob for #name {
+            fn queue_name() -> &'static str {
+                stringify!(#name)
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
 }

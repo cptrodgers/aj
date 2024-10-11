@@ -85,12 +85,12 @@ where
     M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
     Self: Actor<Context = Context<Self>>,
 {
-    pub fn new(job_name: String, backend: impl Backend + 'static) -> Self {
+    pub fn new(job_name: String, backend: Arc<dyn Backend>) -> Self {
         Self {
             name: Arc::new(job_name),
             config: WorkQueueConfig::default(),
             _type: PhantomData,
-            backend: Arc::new(backend),
+            backend,
         }
     }
 
@@ -106,8 +106,8 @@ where
         format!("{}:storage", self.name)
     }
 
-    pub fn start_with_name(name: String, backend: impl Backend + Send + 'static) -> Addr<Self> {
-        let arbiter = Arbiter::new();
+    pub fn start_with_name(name: String, backend: Arc<dyn Backend + Sync + Send>) -> Addr<Self> {
+        let arbiter: Arbiter = Arbiter::new();
 
         <Self as Actor>::start_in_arbiter(&arbiter.handle(), |ctx| {
             let mut q = WorkQueue::<M>::new(name, backend);

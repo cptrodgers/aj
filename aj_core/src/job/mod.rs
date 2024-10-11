@@ -384,3 +384,7 @@ mod tests {
         assert!(schedule_job.context.job_type == expected_cron);
     }
 }
+
+pub trait BackgroundJob {
+    fn queue_name() -> &'static str;
+}

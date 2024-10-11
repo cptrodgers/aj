@@ -78,6 +78,15 @@ checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 name = "aj"
 version = "0.5.1"
 dependencies = [
+ "aj_core",
+ "aj_macro",
+ "serde",
+]
+
+[[package]]
+name = "aj_core"
+version = "0.5.1"
+dependencies = [
  "actix",
  "actix-rt",
  "async-trait",
@@ -97,6 +106,12 @@ dependencies = [
 [[package]]
 name = "aj_macro"
 version = "0.5.1"
+dependencies = [
+ "aj_core",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "android-tzdata"
