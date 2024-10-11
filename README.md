@@ -1,7 +1,7 @@
 # aj
 ![ci status](https://github.com/cptrodgers/aj/actions/workflows/test-and-build.yml/badge.svg)
 
-aj is background jobs solution (based on actix framework - Actor Model).
+Aj is a simple, flexible, and feature-rich background job processing library for Rust, backed by Actix (Actor Model).
 
 
 ```rust

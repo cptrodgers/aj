@@ -15,18 +15,18 @@ pub struct AJob;
 impl Executable for AJob {
     type Output = ();
 
-    async fn execute(&self, _context: &JobContext) -> Self::Output {
-        print!("Hello, this is Rodgers");
+    async fn execute(&self, context: &JobContext) -> Self::Output {
+        print!("AJob Context {context:?}")
     }
 }
 
 fn main() {
     AJ::quick_start();
-    let job = JobBuilder::default().data(AJob).build().unwrap();
+    let message = AJob;
 
     std::thread::spawn(|| {
         System::new().block_on(async {
-            let _ = job.apply().await;
+            let _ = message.job_builder().build().unwrap().run_background().await;
             sleep(Duration::from_secs(1)).await;
         })
     })

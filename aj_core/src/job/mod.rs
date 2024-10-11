@@ -385,6 +385,7 @@ mod tests {
     }
 }
 
-pub trait BackgroundJob {
+pub trait BackgroundJob: Executable + Clone {
     fn queue_name() -> &'static str;
+    fn job_builder(self) -> JobBuilder<Self>;
 }
