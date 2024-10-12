@@ -20,4 +20,4 @@ proc-macro = true
 syn = "2.0"
 quote = "1.0"
 proc-macro2 = "1.0"
-aj_core = { version = "=0.5.1", path = "../aj_core" }
+aj_core = { version = "=0.6.0", path = "../aj_core" }
