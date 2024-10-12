@@ -76,7 +76,7 @@ checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 
 [[package]]
 name = "aj"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "actix-rt",
  "aj_core",
@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "aj_core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "actix",
  "actix-rt",
@@ -107,7 +107,7 @@ dependencies = [
 
 [[package]]
 name = "aj_macro"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "aj_core",
  "proc-macro2",

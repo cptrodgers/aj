@@ -31,10 +31,18 @@
 //! async fn main() {
 //!     AJ::quick_start();
 //!
+//!     // Run with async function
 //!     let message = Print {
 //!         number: 1,
 //!     };
 //!     let _ = message.job_builder().build().unwrap().run().await;
+//!
+//!     // Run with non async function, no need .await
+//!     let message = Print {
+//!         number: 2,
+//!     };
+//!     message.job_builder().build().unwrap().do_run();
+//!
 //!     sleep(Duration::from_secs(1)).await;
 //! }
 //! ```
