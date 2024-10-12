@@ -157,10 +157,6 @@ where
     // 2. Job ran failed and have retry logic
     pub fn re_queue_processing_job(&self, mut job: Job<M>) -> Result<(), Error> {
         debug!("[WorkQueue] Re-run job {}", job.id);
-        if job.is_cancelled() {
-            error!("[WorkQueue] Cannot re-run canceled job {}", job.id,);
-            return Ok(());
-        }
 
         self.remove_processing_job(&job.id);
         job.enqueue(self.backend.deref())?;
@@ -340,6 +336,9 @@ where
             // Only cancel queued job
             if job.is_queued() {
                 job.cancel(self.backend.deref())?;
+                self.backend.queue_remove(&self.format_queue_name(JobStatus::Queued), job_id)?;
+            } else {
+                warn!("[WorkQueue] Cannot cancel {:?} job", job.context.job_status);
             }
         }
 

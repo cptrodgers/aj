@@ -3,6 +3,7 @@
 
 Aj is a simple, flexible, and feature-rich background job processing library for Rust, backed by Actix (Actor Model).
 
+## Usage
 
 ```rust
 use std::time::Duration;
@@ -31,52 +32,49 @@ impl Executable for AJob {
 
 #[main]
 async fn main() {
+    // Start AJ engine
     AJ::quick_start();
-    let message = AJob;
 
+    // Run a Job in Background
+    let message = AJob;
     let _ = message
         .job_builder()
         .build()
         .unwrap()
         .run_background()
         .await;
+
+    // Wait this thread in 1 sec to view result in background job
     sleep(Duration::from_secs(1)).await;
 }
 ```
 
+[More examples](https://github.com/cptrodgers/aj/tree/master/aj/examples)
+
 ## Features & Docs
 
-- [x] Instant Job, Scheduled Job, and Cron Job
-- [x] Update Job
-- [x] Cancel Job
-- [x] Get Job Information
-- [x] Retry:
-  - [x] Max Attempts
-  - [x] Strategy:
+- [x] Instant Jobs, Scheduled Jobs, and Cron Jobs
+- [x] Update Jobs
+- [x] Cancel Jobs
+- [x] Retrieve Job Information
+- [x] Retry Options:
+  - [x] Maximum Retries
+  - [x] Retry Strategy:
     - [x] Interval Strategy
     - [ ] Exponential Strategy
-  - [x] Custom Retry Logic: You can control when the job will retry by adjusting the `should_retry` logic.
+  - [x] Custom Retry Logic: Control when the job retries by adjusting the `should_retry` logic.
   - [ ] Manual Retry
-- [x] Flexible Backend and Broker:
+- [x] Flexible Backend and Broker Support:
   - [x] Native Support:
     - [x] Redis
     - [x] In-memory (Not recommended for production; does not support persisted jobs)
   - [x] `Backend` Trait: AJ can work with any storage that implements the `Backend` trait.
-- [x] Custom Processing Speed of WorkQueue:
+- [x] Custom Processing Speed for the WorkQueue:
   - [x] Job Scan Period (tick)
   - [x] Number of Jobs per Tick
-- [ ] DAG (Directed Acyclic Graph) (https://en.wikipedia.org/wiki/Directed_acyclic_graph)
-- [ ] Multiple Node (Distributed Mode)
+- [ ] DAG (Directed Acyclic Graph)
+- [ ] Distributed Mode
 - [ ] APIs
-
-
-## Using by:
-
-- [ZenClass](https://zenclass.co) - ZenClass is an education platform that help you build your class.
-- [Ikigai](https://ikigai.li) - Ikigai is an AI open assignment platform.
-- [Record Wise](https://recordwise.app)
-
-If you're using `aj`, please contact us to update the list.
 
 ## LICENSE
 
