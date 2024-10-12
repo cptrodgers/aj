@@ -223,7 +223,9 @@ where
 
     pub fn get_processing_job_ids(&self, count: usize) -> Result<Vec<String>, Error> {
         let processing_queue_name = self.format_queue_name(JobStatus::Running);
-        let job_ids = self.backend.queue_get(&processing_queue_name, count, QueueDirection::Front)?;
+        let job_ids =
+            self.backend
+                .queue_get(&processing_queue_name, count, QueueDirection::Front)?;
         Ok(job_ids)
     }
 
@@ -261,7 +263,11 @@ where
         let processing_queue_name = self.format_queue_name(JobStatus::Running);
 
         let mut ready_jobs = vec![];
-        let job_ids = self.backend.queue_get(&idle_queue_name, self.config.job_per_ticks, QueueDirection::Back)?;
+        let job_ids = self.backend.queue_get(
+            &idle_queue_name,
+            self.config.job_per_ticks,
+            QueueDirection::Back,
+        )?;
         for job_id in job_ids {
             let job = get_from_storage::<Job<M>>(self.backend.deref(), &job_id)?;
             if let Some(job) = job {

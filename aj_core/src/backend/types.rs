@@ -27,7 +27,12 @@ pub trait Backend {
 
     fn queue_remove(&self, queue: &str, item: &str) -> Result<(), Error>;
 
-    fn queue_get(&self, queue: &str, count: usize, direction: QueueDirection) -> Result<Vec<String>, Error>;
+    fn queue_get(
+        &self,
+        queue: &str,
+        count: usize,
+        direction: QueueDirection,
+    ) -> Result<Vec<String>, Error>;
 
     fn queue_count(&self, queue: &str) -> Result<usize, Error>;
 

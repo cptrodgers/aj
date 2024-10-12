@@ -1,6 +1,12 @@
 use aj::{
-    actix_rt::time::sleep, async_trait::async_trait, chrono::Duration, get_now_as_secs, serde::{Deserialize, Serialize}, BackgroundJob, Executable, JobBuilder, JobContext, AJ,
-    main
+    async_trait,
+    export::core::{
+        actix_rt::time::sleep,
+        chrono::Duration,
+        get_now_as_secs,
+        serde::{Deserialize, Serialize},
+    },
+    main, BackgroundJob, Executable, JobBuilder, JobContext, AJ,
 };
 
 #[derive(BackgroundJob, Serialize, Deserialize, Debug, Clone)]
@@ -18,20 +24,28 @@ impl Executable for Print {
     }
 }
 
-
 #[main]
 async fn main() {
     AJ::quick_start();
-    // Spawn a thread and wait 1 sec to view
-    let job_id = Print {
-        number: 1,
-    }.job_builder().delay(Duration::seconds(1)).build().unwrap().run_background().await.unwrap();
+    let job_id = Print { number: 1 }
+        .job_builder()
+        .delay(Duration::seconds(1))
+        .build()
+        .unwrap()
+        .run_background()
+        .await
+        .unwrap();
     let _ = AJ::cancel_job::<Print>(job_id).await;
 
     println!("Before run: {}", get_now_as_secs());
-    Print {
-        number: 2,
-    }.job_builder().delay(Duration::seconds(1)).build().unwrap().run_background().await.unwrap();
+    Print { number: 2 }
+        .job_builder()
+        .delay(Duration::seconds(1))
+        .build()
+        .unwrap()
+        .run_background()
+        .await
+        .unwrap();
 
     sleep(std::time::Duration::from_secs(2)).await;
 }

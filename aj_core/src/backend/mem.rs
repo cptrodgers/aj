@@ -73,7 +73,12 @@ impl Backend for InMemory {
         Ok(())
     }
 
-    fn queue_get(&self, queue: &str, count: usize, direction: QueueDirection) -> Result<Vec<String>, Error> {
+    fn queue_get(
+        &self,
+        queue: &str,
+        count: usize,
+        direction: QueueDirection,
+    ) -> Result<Vec<String>, Error> {
         let mut items = vec![];
         if let Some(queue) = self.queues.lock().unwrap().get(queue) {
             match direction {
@@ -83,7 +88,7 @@ impl Backend for InMemory {
                             items.push(item.to_string());
                         }
                     }
-                },
+                }
                 QueueDirection::Back => {
                     let mut start_index = 0;
                     if queue.len() > count {
@@ -96,8 +101,6 @@ impl Backend for InMemory {
                     }
                 }
             }
-
-
         }
 
         Ok(items)
@@ -148,12 +151,16 @@ mod tests {
         assert!(result.is_ok());
 
         // Check that the queue contains the pushed item
-        let items = backend.queue_get(queue_name, 1, QueueDirection::Front).unwrap();
+        let items = backend
+            .queue_get(queue_name, 1, QueueDirection::Front)
+            .unwrap();
         assert_eq!(items, vec!["item1".to_string()]);
 
         // Push another item and check
         backend.queue_push(queue_name, "item2").unwrap();
-        let items = backend.queue_get(queue_name, 2, QueueDirection::Front).unwrap();
+        let items = backend
+            .queue_get(queue_name, 2, QueueDirection::Front)
+            .unwrap();
         assert_eq!(items, vec!["item2".to_string(), "item1".to_string()]); // Inserting to front
     }
 
@@ -179,7 +186,9 @@ mod tests {
         assert_eq!(result.unwrap(), vec!["item2".to_string()]); // item2 is at the front
 
         // Check that to_queue now contains the moved item
-        let items = backend.queue_get(to_queue, 1, QueueDirection::Front).unwrap();
+        let items = backend
+            .queue_get(to_queue, 1, QueueDirection::Front)
+            .unwrap();
         assert_eq!(items, vec!["item2".to_string()]);
     }
 
@@ -197,7 +206,9 @@ mod tests {
         assert!(result.is_ok());
 
         // Ensure the item was removed
-        let items = backend.queue_get(queue_name, 10, QueueDirection::Front).unwrap();
+        let items = backend
+            .queue_get(queue_name, 10, QueueDirection::Front)
+            .unwrap();
         assert_eq!(items, vec!["item2".to_string()]);
     }
 
@@ -212,16 +223,29 @@ mod tests {
         backend.queue_push(queue_name, "item3").unwrap();
 
         // Retrieve items from the queue
-        let items = backend.queue_get(queue_name, 2, QueueDirection::Front).unwrap();
+        let items = backend
+            .queue_get(queue_name, 2, QueueDirection::Front)
+            .unwrap();
         assert_eq!(items, vec!["item3".to_string(), "item2".to_string()]); // Insertion is to the front
 
         // Retrieve items from the back of queue
-        let items = backend.queue_get(queue_name, 2, QueueDirection::Back).unwrap();
+        let items = backend
+            .queue_get(queue_name, 2, QueueDirection::Back)
+            .unwrap();
         assert_eq!(items, vec!["item1".to_string(), "item2".to_string()]); // Insertion is to the front
 
         // Retrieve over items from the back of queue
-        let items = backend.queue_get(queue_name, 4, QueueDirection::Back).unwrap();
-        assert_eq!(items, vec!["item1".to_string(), "item2".to_string(), "item3".to_string()]); // Insertion is to the front
+        let items = backend
+            .queue_get(queue_name, 4, QueueDirection::Back)
+            .unwrap();
+        assert_eq!(
+            items,
+            vec![
+                "item1".to_string(),
+                "item2".to_string(),
+                "item3".to_string()
+            ]
+        ); // Insertion is to the front
     }
 
     #[test]

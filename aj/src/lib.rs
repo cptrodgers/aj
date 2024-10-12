@@ -4,11 +4,13 @@
 //! use std::time::Duration;
 //!
 //! use aj::{
-//!    async_trait::async_trait,
-//!    serde::{Deserialize, Serialize},
-//!    BackgroundJob, Executable, JobBuilder, JobContext, AJ,
-//!    actix_rt::time::sleep,
+//!    async_trait,
 //!    main,
+//!    BackgroundJob, Executable, JobBuilder, JobContext, AJ,
+//!    export::core:: {
+//!        actix_rt::time::sleep,
+//!        serde::{Deserialize, Serialize},
+//!    }
 //! };
 //!
 //! #[derive(BackgroundJob, Serialize, Deserialize, Debug, Clone)]
@@ -38,19 +40,18 @@
 //! ```
 //!
 
-
 extern crate aj_macro;
 
-pub use aj_core::*;
-
-pub use aj_core::{Executable, AJ, WorkQueue, Job, JobBuilder, Error};
+pub use aj_core::{BackgroundJob, Error, Executable, Job, JobBuilder, JobContext, WorkQueue, AJ};
 pub use aj_macro::BackgroundJob;
 
 pub use actix_rt::main;
+pub use aj_core::async_trait::async_trait;
 
 #[doc(hidden)]
 pub mod export {
     pub mod core {
         pub use aj_core::*;
+        pub use serde;
     }
 }

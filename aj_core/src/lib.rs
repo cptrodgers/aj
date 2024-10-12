@@ -23,11 +23,11 @@ use serde::{de::DeserializeOwned, Serialize};
 pub use util::*;
 
 // External libs.
+pub use actix_rt;
 pub use async_trait;
 pub use chrono;
 pub use cron;
 pub use serde;
-pub use actix_rt;
 
 impl<M> Job<M>
 where

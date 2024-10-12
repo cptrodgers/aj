@@ -5,34 +5,43 @@ Aj is a simple, flexible, and feature-rich background job processing library for
 
 
 ```rust
+use std::time::Duration;
+
 use aj::{
-    async_trait::async_trait,
-    serde::{Deserialize, Serialize},
+    async_trait,
+    main,
     BackgroundJob, Executable, JobBuilder, JobContext, AJ,
-    chrono::Duration,
+    export::core:: {
+        actix_rt::time::sleep,
+        serde::{Deserialize, Serialize},
+    }
 };
 
 #[derive(BackgroundJob, Serialize, Deserialize, Debug, Clone)]
-pub struct Print {
-  number: i32,
-};
+pub struct AJob;
 
 #[async_trait]
 impl Executable for AJob {
     type Output = ();
 
     async fn execute(&self, _context: &JobContext) -> Self::Output {
-        print!("Hello, AJ {}", self.number);
+        println!("Hello Job");
     }
 }
 
-// Background Job
-let job = Print { number: 1 }.job_builder().build().unwrap();
-job.apply().await;
+#[main]
+async fn main() {
+    AJ::quick_start();
+    let message = AJob;
 
-// Delay / Schedule Job
-let job = Print { number: 1 }.job_builder().delay(Duration::seconds(1)).build().unwrap();
-job.apply().await;
+    let _ = message
+        .job_builder()
+        .build()
+        .unwrap()
+        .run_background()
+        .await;
+    sleep(Duration::from_secs(1)).await;
+}
 ```
 
 ## Features & Docs

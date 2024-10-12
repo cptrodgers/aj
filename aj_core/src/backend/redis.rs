@@ -51,17 +51,20 @@ impl Redis {
         Ok(items)
     }
 
-    pub fn lrange(&self, queue: &str, count: usize, queue_direction: QueueDirection) -> RedisResult<Vec<String>> {
+    pub fn lrange(
+        &self,
+        queue: &str,
+        count: usize,
+        queue_direction: QueueDirection,
+    ) -> RedisResult<Vec<String>> {
         let mut conn = self.client.get_connection()?;
         let items = match queue_direction {
-            QueueDirection::Front => {
-                conn.lrange(queue, 0, count as isize - 1)?
-            },
+            QueueDirection::Front => conn.lrange(queue, 0, count as isize - 1)?,
             QueueDirection::Back => {
-                let mut res: Vec<String> = conn.lrange(queue, (-1 * count as i16).into(), -1)?;
+                let mut res: Vec<String> = conn.lrange(queue, -(count as isize), -1)?;
                 res.reverse();
                 res
-            },
+            }
         };
         Ok(items)
     }
@@ -102,7 +105,12 @@ impl Backend for Redis {
         Ok(())
     }
 
-    fn queue_get(&self, queue: &str, count: usize, direction: QueueDirection) -> Result<Vec<String>, Error> {
+    fn queue_get(
+        &self,
+        queue: &str,
+        count: usize,
+        direction: QueueDirection,
+    ) -> Result<Vec<String>, Error> {
         let res = self.lrange(queue, count, direction)?;
         Ok(res)
     }
@@ -174,12 +182,16 @@ mod tests {
         assert!(result.is_ok());
 
         // Check that the queue contains the pushed item
-        let items = backend.queue_get(&queue_name, 1, QueueDirection::Front).unwrap();
+        let items = backend
+            .queue_get(&queue_name, 1, QueueDirection::Front)
+            .unwrap();
         assert_eq!(items, vec!["item1".to_string()]);
 
         // Push another item and check
         backend.queue_push(&queue_name, "item2").unwrap();
-        let items = backend.queue_get(&queue_name, 2, QueueDirection::Front).unwrap();
+        let items = backend
+            .queue_get(&queue_name, 2, QueueDirection::Front)
+            .unwrap();
         assert_eq!(items, vec!["item2".to_string(), "item1".to_string()]); // Inserting to front
         clean(&queue_name);
     }
@@ -208,7 +220,9 @@ mod tests {
         assert_eq!(result.unwrap(), vec!["item2".to_string()]); // item2 is at the front
 
         // Check that to_queue now contains the moved item
-        let items = backend.queue_get(to_queue, 1, QueueDirection::Front).unwrap();
+        let items = backend
+            .queue_get(to_queue, 1, QueueDirection::Front)
+            .unwrap();
         assert_eq!(items, vec!["item2".to_string()]);
 
         clean(&from_queue);
@@ -230,7 +244,9 @@ mod tests {
         assert!(result.is_ok());
 
         // Ensure the item was removed
-        let items = backend.queue_get(&queue_name, 10, QueueDirection::Front).unwrap();
+        let items = backend
+            .queue_get(&queue_name, 10, QueueDirection::Front)
+            .unwrap();
         assert_eq!(items, vec!["item2".to_string()]);
 
         clean(&queue_name);
@@ -248,11 +264,15 @@ mod tests {
         backend.queue_push(&queue_name, "item3").unwrap();
 
         // Retrieve items from the queue
-        let items = backend.queue_get(&queue_name, 2, QueueDirection::Front).unwrap();
+        let items = backend
+            .queue_get(&queue_name, 2, QueueDirection::Front)
+            .unwrap();
         assert_eq!(items, vec!["item3".to_string(), "item2".to_string()]); // Insertion is to the front
 
         // Retrieve items from the queue from back
-        let items = backend.queue_get(&queue_name, 2, QueueDirection::Back).unwrap();
+        let items = backend
+            .queue_get(&queue_name, 2, QueueDirection::Back)
+            .unwrap();
         assert_eq!(items, vec!["item1".to_string(), "item2".to_string()]); // Insertion is to the front
 
         clean(&queue_name);
