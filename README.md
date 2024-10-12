@@ -79,7 +79,7 @@ async fn main() {
 
 **Processing Speed Customization**
 - [x] Job Scan Period (tick)
-- [x] Number of Jobs per Tick
+- [x] Number of Jobs can run at same time
 
 **DAG**
 - [ ] DAG (Directed Acyclic Graph)

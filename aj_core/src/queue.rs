@@ -13,7 +13,7 @@ use crate::types::{get_from_storage, upsert_to_storage, Backend, QueueDirection}
 use crate::{Error, Executable, JobType};
 
 const DEFAULT_TICK_DURATION: Duration = Duration::from_millis(100);
-const JOBS_PER_TICK: usize = 5;
+const MAX_PROCESSING_JOBS: usize = 20;
 
 #[derive(Debug, Clone)]
 pub struct EnqueueConfig {
@@ -43,13 +43,13 @@ impl EnqueueConfig {
 #[derive(Debug, Clone)]
 pub struct WorkQueueConfig {
     pub process_tick_duration: Duration,
-    pub job_per_ticks: usize,
+    pub max_processing_jobs: usize,
 }
 
 impl WorkQueueConfig {
     pub fn init() -> Self {
         Self {
-            job_per_ticks: JOBS_PER_TICK,
+            max_processing_jobs: MAX_PROCESSING_JOBS,
             process_tick_duration: DEFAULT_TICK_DURATION,
         }
     }
@@ -248,42 +248,68 @@ where
     pub fn pick_jobs_to_process(&self) -> Result<Vec<Job<M>>, Error> {
         let processing_queue = self.format_queue_name(JobStatus::Running);
         let total_processing_jobs = self.backend.queue_count(&processing_queue).unwrap_or(0);
-        if total_processing_jobs > 0 {
-            // Still have processing previous batch jobs.
+        if total_processing_jobs >= self.config.max_processing_jobs {
             return Ok(vec![]);
         }
 
-        // Previous batch job is complete, import new queued jobs to processing
+        self.try_pick_specific_ready_jobs(self.config.max_processing_jobs - total_processing_jobs)
+    }
+
+    pub fn try_pick_specific_ready_jobs(&self, total: usize) -> Result<Vec<Job<M>>, Error> {
+        info!("Try Picking {total} jobs in queue");
         let idle_queue_name = self.format_queue_name(JobStatus::Queued);
         let processing_queue_name = self.format_queue_name(JobStatus::Running);
 
+        let idle_queue_length = self.backend.queue_count(&idle_queue_name)?;
         let mut ready_jobs = vec![];
-        let job_ids = self.backend.queue_get(
-            &idle_queue_name,
-            self.config.job_per_ticks,
-            QueueDirection::Back,
-        )?;
-        for job_id in job_ids {
-            let job = get_from_storage::<Job<M>>(self.backend.deref(), &job_id)?;
-            if let Some(job) = job {
-                if job.is_ready() {
-                    ready_jobs.push(job);
-                    self.backend.queue_move(
-                        &idle_queue_name,
-                        &processing_queue_name,
-                        1,
-                        QueueDirection::Back,
-                        QueueDirection::Front,
-                    )?;
-                } else {
-                    self.backend.queue_move(
-                        &idle_queue_name,
-                        &idle_queue_name,
-                        1,
-                        QueueDirection::Back,
-                        QueueDirection::Front,
-                    )?;
+        let mut current_cursor = idle_queue_length as i32;
+
+        loop {
+            let job_ids = self
+                .backend
+                .queue_get(&idle_queue_name, 20, QueueDirection::Back)?;
+
+            // Update current cursor
+            current_cursor -= job_ids.len() as i32;
+
+            for job_id in job_ids {
+                let job = get_from_storage::<Job<M>>(self.backend.deref(), &job_id)?;
+                if let Some(job) = job {
+                    if job.is_ready()
+                        && ready_jobs.len() < total
+                        && !ready_jobs
+                            .iter()
+                            .any(|ready_job: &Job<M>| ready_job.id == job.id)
+                    {
+                        // Job is read to process. Put it in the ready list
+                        ready_jobs.push(job);
+                        self.backend.queue_move(
+                            &idle_queue_name,
+                            &processing_queue_name,
+                            1,
+                            QueueDirection::Back,
+                            QueueDirection::Front,
+                        )?;
+                        continue;
+                    }
                 }
+
+                // Job is not ready to process, move it back to front of queue
+                self.backend.queue_move(
+                    &idle_queue_name,
+                    &idle_queue_name,
+                    1,
+                    QueueDirection::Back,
+                    QueueDirection::Front,
+                )?;
+            }
+
+            if ready_jobs.len() >= total {
+                break;
+            }
+
+            if current_cursor <= 0 {
+                break;
             }
         }
 
