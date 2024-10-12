@@ -265,6 +265,10 @@ where
         }
     }
 
+    pub fn is_queued(&self) -> bool {
+        self.context.job_status == JobStatus::Queued
+    }
+
     pub fn is_running(&self) -> bool {
         self.context.job_status == JobStatus::Running
     }
@@ -385,6 +389,7 @@ mod tests {
     }
 }
 
-pub trait BackgroundJob {
+pub trait BackgroundJob: Executable + Clone {
     fn queue_name() -> &'static str;
+    fn job_builder(self) -> JobBuilder<Self>;
 }

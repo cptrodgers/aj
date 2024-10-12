@@ -1,7 +1,7 @@
 # aj
 ![ci status](https://github.com/cptrodgers/aj/actions/workflows/test-and-build.yml/badge.svg)
 
-aj is background jobs solution (based on actix framework - Actor Model).
+Aj is a simple, flexible, and feature-rich background job processing library for Rust, backed by Actix (Actor Model).
 
 
 ```rust
@@ -9,21 +9,29 @@ use aj::{
     async_trait::async_trait,
     serde::{Deserialize, Serialize},
     BackgroundJob, Executable, JobBuilder, JobContext, AJ,
+    chrono::Duration,
 };
 
 #[derive(BackgroundJob, Serialize, Deserialize, Debug, Clone)]
-pub struct AJob;
+pub struct Print {
+  number: i32,
+};
 
 #[async_trait]
 impl Executable for AJob {
     type Output = ();
 
     async fn execute(&self, _context: &JobContext) -> Self::Output {
-        print!("Hello");
+        print!("Hello, AJ {}", self.number);
     }
 }
 
-let job = JobBuilder::default().data(AJob).build().unwrap();
+// Background Job
+let job = Print { number: 1 }.job_builder().build().unwrap();
+job.apply().await;
+
+// Delay / Schedule Job
+let job = Print { number: 1 }.job_builder().delay(Duration::seconds(1)).build().unwrap();
 job.apply().await;
 ```
 

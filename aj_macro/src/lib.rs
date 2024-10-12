@@ -14,6 +14,13 @@ pub fn background_job_derive(input: TokenStream) -> TokenStream {
             fn queue_name() -> &'static str {
                 stringify!(#name)
             }
+
+            fn job_builder(self) -> JobBuilder<Self> {
+                let mut job_builder = JobBuilder::default();
+                job_builder.data(self);
+
+                job_builder
+            }
         }
     };
 

@@ -41,7 +41,7 @@ where
         + DeserializeOwned
         + 'static,
 {
-    pub async fn apply(self) -> Result<(), Error> {
+    pub async fn run_background(self) -> Result<String, Error> {
         AJ::add_job(self, M::queue_name()).await
     }
 }

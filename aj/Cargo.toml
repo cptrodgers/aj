@@ -21,3 +21,4 @@ name = "aj"
 aj_macro = { version = "=0.5.1", path = "../aj_macro" }
 aj_core = { version = "=0.5.1", path = "../aj_core" }
 serde = { version = "1.0.64", features = ["derive"] }
+actix-rt = "2.2"

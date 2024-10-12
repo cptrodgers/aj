@@ -163,13 +163,15 @@ impl AJ {
         }
     }
 
-    pub async fn add_job<M>(job: Job<M>, queue_name: &str) -> Result<(), Error>
+    pub async fn add_job<M>(job: Job<M>, queue_name: &str) -> Result<String, Error>
     where
         M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
         WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
     {
+        let job_id = job.id.clone();
         let config = EnqueueConfig::new_re_run();
-        Self::enqueue_job(job, config, queue_name).await
+        Self::enqueue_job(job, config, queue_name).await?;
+        Ok(job_id)
     }
 }
 

@@ -7,7 +7,14 @@ pub enum Error {
     ExecutionError(String),
     CronError(cron::error::Error),
     MailboxError(MailboxError),
+    BuidlerError(derive_builder::UninitializedFieldError),
     NoQueueRegister,
+}
+
+impl From<derive_builder::UninitializedFieldError> for Error {
+    fn from(value: derive_builder::UninitializedFieldError) -> Self {
+        Self::BuidlerError(value)
+    }
 }
 
 impl From<RedisError> for Error {
