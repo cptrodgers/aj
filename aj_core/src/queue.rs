@@ -153,12 +153,11 @@ where
     }
 
     // Push processing job if
-    // 1. Job is not ready `job.is_ready()`
-    // 2. Job is done and still have next tick (cron job).
-    // 3. Job ran failed and have retry logic
-    pub fn re_run_processing_job(&self, mut job: Job<M>) -> Result<(), Error> {
+    // 1. Job is done and still have next tick (cron job).
+    // 2. Job ran failed and have retry logic
+    pub fn re_queue_processing_job(&self, mut job: Job<M>) -> Result<(), Error> {
         debug!("[WorkQueue] Re-run job {}", job.id);
-        if !job.is_cancelled() {
+        if job.is_cancelled() {
             error!("[WorkQueue] Cannot re-run canceled job {}", job.id,);
             return Ok(());
         }
@@ -170,6 +169,7 @@ where
         if let Err(e) = self.backend.queue_push(&queued_queue, job.id.as_str()) {
             error!("[WorkQueue] Cannot re enqueue {}: {:?}", job.id, e);
         };
+        print!("{:?}", self.backend.queue_count(&queued_queue));
         Ok(())
     }
 
@@ -223,7 +223,7 @@ where
 
     pub fn get_processing_job_ids(&self, count: usize) -> Result<Vec<String>, Error> {
         let processing_queue_name = self.format_queue_name(JobStatus::Running);
-        let job_ids = self.backend.queue_get(&processing_queue_name, count)?;
+        let job_ids = self.backend.queue_get(&processing_queue_name, count, QueueDirection::Front)?;
         Ok(job_ids)
     }
 
@@ -234,9 +234,9 @@ where
 
     pub fn process_jobs(&mut self, ctx: &mut Context<WorkQueue<M>>) {
         match self.pick_jobs_to_process() {
-            Ok(job_ids) => {
-                for job_id in job_ids {
-                    self.execute_job_by_id(job_id, ctx);
+            Ok(jobs) => {
+                for job in jobs {
+                    self.execute_job_task(job, ctx);
                 }
             }
             Err(err) => {
@@ -248,54 +248,57 @@ where
         });
     }
 
-    pub fn pick_jobs_to_process(&self) -> Result<Vec<String>, Error> {
+    pub fn pick_jobs_to_process(&self) -> Result<Vec<Job<M>>, Error> {
         let processing_queue = self.format_queue_name(JobStatus::Running);
         let total_processing_jobs = self.backend.queue_count(&processing_queue).unwrap_or(0);
         if total_processing_jobs > 0 {
-            // There
+            // Still have processing previous batch jobs.
             return Ok(vec![]);
         }
 
-        // Previous procession is complete, import new queued jobs to processing
+        // Previous batch job is complete, import new queued jobs to processing
         let idle_queue_name = self.format_queue_name(JobStatus::Queued);
         let processing_queue_name = self.format_queue_name(JobStatus::Running);
-        let job_ids = self.backend.queue_move(
-            &idle_queue_name,
-            &processing_queue_name,
-            self.config.job_per_ticks,
-            QueueDirection::Back,
-            QueueDirection::Front,
-        )?;
 
-        for job_id in &job_ids {
-            if let Ok(Some(mut item)) = get_from_storage::<Job<M>>(self.backend.deref(), job_id) {
-                if item.context.job_status != JobStatus::Canceled {
-                    item.run(self.backend.deref())?;
+        let mut ready_jobs = vec![];
+        let job_ids = self.backend.queue_get(&idle_queue_name, self.config.job_per_ticks, QueueDirection::Back)?;
+        for job_id in job_ids {
+            let job = get_from_storage::<Job<M>>(self.backend.deref(), &job_id)?;
+            if let Some(job) = job {
+                if job.is_ready() {
+                    ready_jobs.push(job);
+                    self.backend.queue_move(
+                        &idle_queue_name,
+                        &processing_queue_name,
+                        1,
+                        QueueDirection::Back,
+                        QueueDirection::Front,
+                    )?;
+                } else {
+                    self.backend.queue_move(
+                        &idle_queue_name,
+                        &idle_queue_name,
+                        1,
+                        QueueDirection::Back,
+                        QueueDirection::Front,
+                    )?;
                 }
             }
         }
 
-        Ok(job_ids)
+        Ok(ready_jobs)
     }
 
-    pub fn execute_job_by_id(&self, job_id: String, ctx: &mut Context<WorkQueue<M>>) {
-        match self.read_job(&job_id) {
-            Ok(Some(job)) => {
-                // Anti pattern in Rust - Use Arc to wrap the value of Self
-                let this = self.clone();
-                let task = async move {
-                    if let Err(err) = this.execute_job(job.clone()).await {
-                        error!("[WorkQueue] Execute job {} fail: {:?}", job_id, err);
-                        let _ = this.mark_job_is_failed(job);
-                    }
-                };
-                wrap_future::<_, Self>(task).spawn(ctx);
+    pub fn execute_job_task(&self, job: Job<M>, ctx: &mut Context<WorkQueue<M>>) {
+        let this = self.clone();
+        let task = async move {
+            // TODO: Consider Smart Pointer to wrap job instead of clone
+            if let Err(err) = this.execute_job(job.clone()).await {
+                error!("[WorkQueue] Execute job {} fail: {:?}", job.id, err);
+                let _ = this.mark_job_is_failed(job);
             }
-            _ => {
-                error!("[WorkQueue] Cannot read processing job id: {job_id}");
-                self.push_failed_job(&job_id);
-            }
-        }
+        };
+        wrap_future::<_, Self>(task).spawn(ctx);
     }
 
     pub async fn execute_job(&self, mut job: Job<M>) -> Result<(), Error> {
@@ -303,11 +306,6 @@ where
         if job.is_cancelled() {
             self.mark_job_is_canceled(job.id.as_str());
             return Ok(());
-        }
-
-        // If job is not ready, move back to queued queue
-        if !job.is_ready() {
-            return self.re_run_processing_job(job);
         }
 
         let job_output = job.execute().await;
@@ -319,13 +317,13 @@ where
             if let Some(next_retry_ms) = job.data.should_retry(retry_context, job_output).await {
                 info!("[WorkQueue] Retry this job. {}", job.id);
                 job.context.job_type = JobType::ScheduledAt(next_retry_ms);
-                return self.re_run_processing_job(job);
+                return self.re_queue_processing_job(job);
             }
         }
 
         // If this is interval job (has next tick) -> re_enqueue it
         if let Some(next_job) = job.next_tick() {
-            return self.re_run_processing_job(next_job);
+            return self.re_queue_processing_job(next_job);
         }
 
         self.mark_job_is_finished(job)
@@ -333,7 +331,10 @@ where
 
     pub fn cancel_job(&self, job_id: &str) -> Result<(), Error> {
         if let Some(mut job) = get_from_storage::<Job<M>>(self.backend.deref(), job_id)? {
-            job.cancel(self.backend.deref())?;
+            // Only cancel queued job
+            if job.is_queued() {
+                job.cancel(self.backend.deref())?;
+            }
         }
 
         Ok(())

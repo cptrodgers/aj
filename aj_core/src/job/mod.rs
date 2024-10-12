@@ -265,6 +265,10 @@ where
         }
     }
 
+    pub fn is_queued(&self) -> bool {
+        self.context.job_status == JobStatus::Queued
+    }
+
     pub fn is_running(&self) -> bool {
         self.context.job_status == JobStatus::Running
     }

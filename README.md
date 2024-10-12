@@ -9,21 +9,29 @@ use aj::{
     async_trait::async_trait,
     serde::{Deserialize, Serialize},
     BackgroundJob, Executable, JobBuilder, JobContext, AJ,
+    chrono::Duration,
 };
 
 #[derive(BackgroundJob, Serialize, Deserialize, Debug, Clone)]
-pub struct AJob;
+pub struct Print {
+  number: i32,
+};
 
 #[async_trait]
 impl Executable for AJob {
     type Output = ();
 
     async fn execute(&self, _context: &JobContext) -> Self::Output {
-        print!("Hello");
+        print!("Hello, AJ {}", self.number);
     }
 }
 
-let job = JobBuilder::default().data(AJob).build().unwrap();
+// Background Job
+let job = Print { number: 1 }.job_builder().build().unwrap();
+job.apply().await;
+
+// Delay / Schedule Job
+let job = Print { number: 1 }.job_builder().delay(Duration::seconds(1)).build().unwrap();
 job.apply().await;
 ```
 
