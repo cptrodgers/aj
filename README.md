@@ -10,12 +10,11 @@ use std::time::Duration;
 
 use aj::{
     async_trait,
-    main,
-    BackgroundJob, Executable, JobBuilder, JobContext, AJ,
-    export::core:: {
+    export::core::{
         actix_rt::time::sleep,
         serde::{Deserialize, Serialize},
-    }
+    },
+    main, BackgroundJob, Executable, JobBuilder, JobContext, AJ,
 };
 
 #[derive(BackgroundJob, Serialize, Deserialize, Debug, Clone)]
@@ -32,19 +31,24 @@ impl Executable for AJob {
 
 #[main]
 async fn main() {
-    // Start AJ engine
     AJ::quick_start();
-
-    // Run a Job in Background
     let message = AJob;
+
+    // Normal Job
     let _ = message
         .job_builder()
         .build()
         .unwrap()
-        .run_background()
+        .run()
         .await;
 
-    // Wait this thread in 1 sec to view result in background job
+    // Or just run, work in non async function
+    let _ = message
+        .job_builder()
+        .build()
+        .unwrap()
+        .do_run();
+
     sleep(Duration::from_secs(1)).await;
 }
 ```

@@ -41,7 +41,20 @@ where
         + DeserializeOwned
         + 'static,
 {
-    pub async fn run_background(self) -> Result<String, Error> {
+    /// It will wait to WorkQueue received and insert job into backend
+    pub async fn run(self) -> Result<String, Error> {
         AJ::add_job(self, M::queue_name()).await
+    }
+
+    /// It will just send message to WorkQueue and no gurantee job is inserted to backend
+    pub fn do_run(self) {
+        use actix_rt::spawn;
+
+        spawn(async {
+            let job_id = self.id.clone();
+            if let Err(e) = AJ::add_job(self, M::queue_name()).await {
+                error!("Cannot queue job {}: {e:?}", job_id.clone());
+            }
+        });
     }
 }

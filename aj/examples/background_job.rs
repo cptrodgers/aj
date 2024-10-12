@@ -27,11 +27,6 @@ async fn main() {
     let message = AJob;
 
     // Normal Job
-    let _ = message
-        .job_builder()
-        .build()
-        .unwrap()
-        .run_background()
-        .await;
+    let _ = message.job_builder().build().unwrap().run().await;
     sleep(Duration::from_secs(1)).await;
 }

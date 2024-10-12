@@ -31,16 +31,14 @@ async fn main() {
         .delay(Duration::seconds(1))
         .build()
         .unwrap()
-        .run_background()
+        .run()
         .await;
 
-    let _ = AJob
-        .job_builder()
+    AJob.job_builder()
         .schedule_at(get_now() + Duration::seconds(2))
         .build()
         .unwrap()
-        .run_background()
-        .await;
+        .do_run();
 
     sleep(std::time::Duration::from_secs(3)).await;
 }

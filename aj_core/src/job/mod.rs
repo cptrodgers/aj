@@ -290,7 +290,7 @@ where
         upsert_to_storage(backend, &self.id, self.clone())
     }
 
-    pub fn run(&mut self, backend: &dyn Backend) -> Result<(), Error> {
+    pub fn process(&mut self, backend: &dyn Backend) -> Result<(), Error> {
         debug!("[Job] Run {}", self.id);
         self.context.job_status = JobStatus::Running;
         self.context.run_at = Some(get_now_as_ms());

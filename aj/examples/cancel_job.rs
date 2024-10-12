@@ -32,7 +32,7 @@ async fn main() {
         .delay(Duration::seconds(1))
         .build()
         .unwrap()
-        .run_background()
+        .run()
         .await
         .unwrap();
     let _ = AJ::cancel_job::<Print>(job_id).await;
@@ -43,7 +43,7 @@ async fn main() {
         .delay(Duration::seconds(1))
         .build()
         .unwrap()
-        .run_background()
+        .run()
         .await
         .unwrap();
 

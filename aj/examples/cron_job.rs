@@ -30,7 +30,7 @@ async fn main() {
         .cron("* * * * * * *")
         .build()
         .unwrap()
-        .run_background()
+        .run()
         .await;
 
     sleep(std::time::Duration::from_secs(5)).await;

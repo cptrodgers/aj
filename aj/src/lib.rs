@@ -34,7 +34,7 @@
 //!     let message = Print {
 //!         number: 1,
 //!     };
-//!     let _ = message.job_builder().build().unwrap().run_background().await;
+//!     let _ = message.job_builder().build().unwrap().run().await;
 //!     sleep(Duration::from_secs(1)).await;
 //! }
 //! ```

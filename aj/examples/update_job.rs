@@ -34,7 +34,7 @@ async fn main() {
         .delay(Duration::seconds(1))
         .build()
         .unwrap()
-        .run_background()
+        .run()
         .await
         .unwrap();
 
