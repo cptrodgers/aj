@@ -1,7 +1,7 @@
 # aj
 ![ci status](https://github.com/cptrodgers/aj/actions/workflows/test-and-build.yml/badge.svg)
 
-Aj is a simple, flexible, and feature-rich background job processing library for Rust, backed by Actix (Actor Model).
+Aj is a simple, customize-able, and feature-rich background job processing library for Rust, backed by Actix (Actor Model).
 
 ## Usage
 
@@ -51,29 +51,44 @@ async fn main() {
 
 [More examples](https://github.com/cptrodgers/aj/tree/master/aj/examples)
 
-## Features & Docs
+## Features
 
-- [x] Instant Jobs, Scheduled Jobs, and Cron Jobs
+**Job Types**:
+- [x] Instant Jobs
+- [x] Scheduled Jobs,
+- [x] Cron Jobs
+
+**Manage Job**:
 - [x] Update Jobs
 - [x] Cancel Jobs
-- [x] Retrieve Job Information
-- [x] Retry Options:
-  - [x] Maximum Retries
-  - [x] Retry Strategy:
-    - [x] Interval Strategy
-    - [ ] Exponential Strategy
-  - [x] Custom Retry Logic: Control when the job retries by adjusting the `should_retry` logic.
-  - [ ] Manual Retry
-- [x] Flexible Backend and Broker Support:
-  - [x] Native Support:
-    - [x] Redis
-    - [x] In-memory (Not recommended for production; does not support persisted jobs)
-  - [x] `Backend` Trait: AJ can work with any storage that implements the `Backend` trait.
-- [x] Custom Processing Speed for the WorkQueue:
-  - [x] Job Scan Period (tick)
-  - [x] Number of Jobs per Tick
+- [x] Get Job Information
+
+**Retry**
+- [ ] Manual Retry
+- [x] Maximum Retries
+- [x] Retry Strategy:
+  - [x] Interval Strategy
+  - [ ] Exponential Strategy
+  - [x] Custom Strategy: Control when the job retries by adjusting the `should_retry` logic.
+
+**Backend (Broker + Storage)**
+- [x] [Backend](https://github.com/cptrodgers/aj/blob/master/aj_core/src/backend/types.rs#L16) Trait: AJ can work with any database or storage that implements the `Backend` trait. [In memory Example](https://github.com/cptrodgers/aj/blob/master/aj_core/src/backend/mem.rs)
+- [x] Native Support:
+  - [x] In-memory
+  - [x] Redis
+
+**Processing Speed Customization**
+- [x] Job Scan Period (tick)
+- [x] Number of Jobs per Tick
+
+**DAG**
 - [ ] DAG (Directed Acyclic Graph)
+
+**Distributed**
 - [ ] Distributed Mode
+
+**Dashboard & Other**
+- [ ] Monitorting
 - [ ] APIs
 
 ## LICENSE

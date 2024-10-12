@@ -81,6 +81,7 @@ dependencies = [
  "actix-rt",
  "aj_core",
  "aj_macro",
+ "lazy_static",
  "serde",
 ]
 

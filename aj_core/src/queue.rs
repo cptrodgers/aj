@@ -336,7 +336,8 @@ where
             // Only cancel queued job
             if job.is_queued() {
                 job.cancel(self.backend.deref())?;
-                self.backend.queue_remove(&self.format_queue_name(JobStatus::Queued), job_id)?;
+                self.backend
+                    .queue_remove(&self.format_queue_name(JobStatus::Queued), job_id)?;
             } else {
                 warn!("[WorkQueue] Cannot cancel {:?} job", job.context.job_status);
             }

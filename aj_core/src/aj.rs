@@ -11,7 +11,7 @@ use crate::job::Job;
 use crate::mem::InMemory;
 use crate::queue::{cancel_job, enqueue_job, WorkQueue};
 use crate::types::Backend;
-use crate::{get_job, EnqueueConfig, Error, Executable};
+use crate::{get_job, BackgroundJob, EnqueueConfig, Error, Executable, JobContext};
 
 lazy_static! {
     static ref QUEUE_REGISTRY: Registry = Registry::default();
@@ -161,6 +161,36 @@ impl AJ {
         } else {
             None
         }
+    }
+
+    pub async fn update_job<M>(
+        job_id: &str,
+        data: M,
+        context: Option<JobContext>,
+    ) -> Result<(), Error>
+    where
+        M: Executable
+            + BackgroundJob
+            + Send
+            + Sync
+            + Clone
+            + Serialize
+            + DeserializeOwned
+            + 'static,
+        WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
+    {
+        let job = Self::get_job::<M>(job_id).await;
+        if let Some(mut job) = job {
+            job.data = data;
+            if let Some(context) = context {
+                job.context = context;
+            }
+            Self::add_job(job, M::queue_name()).await?;
+        } else {
+            warn!("Cannot update non existing job {job_id}");
+        }
+
+        Ok(())
     }
 
     pub async fn add_job<M>(job: Job<M>, queue_name: &str) -> Result<String, Error>
