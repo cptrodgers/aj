@@ -165,7 +165,6 @@ where
         if let Err(e) = self.backend.queue_push(&queued_queue, job.id.as_str()) {
             error!("[WorkQueue] Cannot re enqueue {}: {:?}", job.id, e);
         };
-        print!("{:?}", self.backend.queue_count(&queued_queue));
         Ok(())
     }
 
