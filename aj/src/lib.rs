@@ -55,6 +55,7 @@ pub use aj_macro::BackgroundJob;
 
 pub use actix_rt::main;
 pub use aj_core::async_trait::async_trait;
+pub use aj_macro::job;
 
 #[doc(hidden)]
 pub mod export {

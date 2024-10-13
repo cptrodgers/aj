@@ -1,17 +1,7 @@
-# AJ
-![ci status](https://github.com/cptrodgers/aj/actions/workflows/test-and-build.yml/badge.svg)
-
-Aj is a simple, customize-able, and feature-rich background job processing library for Rust, backed by Actix (Actor Model).
-
-
-```rust
 use std::time::Duration;
 
-use aj::{
-    export::core::actix_rt::time::sleep,
-    main, AJ,
-};
 use aj::job;
+use aj::{export::core::actix_rt::time::sleep, main, AJ};
 
 #[job]
 fn hello(number: i32, number2: i32) {
@@ -38,4 +28,3 @@ async fn main() {
     // Sleep 1 ms to view the result from job
     sleep(Duration::from_secs(1)).await;
 }
-```

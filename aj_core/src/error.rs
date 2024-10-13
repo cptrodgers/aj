@@ -1,18 +1,20 @@
 use actix::MailboxError;
 use redis::RedisError;
 
+use crate::JobBuilderError;
+
 #[derive(Debug)]
 pub enum Error {
     Redis(RedisError),
     ExecutionError(String),
     CronError(cron::error::Error),
     MailboxError(MailboxError),
-    BuidlerError(derive_builder::UninitializedFieldError),
+    BuidlerError(JobBuilderError),
     NoQueueRegister,
 }
 
-impl From<derive_builder::UninitializedFieldError> for Error {
-    fn from(value: derive_builder::UninitializedFieldError) -> Self {
+impl From<JobBuilderError> for Error {
+    fn from(value: JobBuilderError) -> Self {
         Self::BuidlerError(value)
     }
 }

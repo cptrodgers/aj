@@ -9,44 +9,34 @@ Aj is a simple, customize-able, and feature-rich background job processing libra
 use std::time::Duration;
 
 use aj::{
-    async_trait,
-    export::core::{
-        actix_rt::time::sleep,
-        serde::{Deserialize, Serialize},
-    },
-    main, BackgroundJob, Executable, JobBuilder, JobContext, AJ,
+    export::core::actix_rt::time::sleep,
+    main, AJ,
 };
+use aj::job;
 
-#[derive(BackgroundJob, Serialize, Deserialize, Debug, Clone)]
-pub struct AJob;
-
-#[async_trait]
-impl Executable for AJob {
-    type Output = ();
-
-    async fn execute(&self, _context: &JobContext) -> Self::Output {
-        println!("Hello Job");
-    }
+#[job]
+fn hello(number: i32, number2: i32) {
+    println!("Hello {} {number2}", number);
 }
 
-fn run_a_job() {
-    let message = AJob;
-    // use `do_run` can start your background job in non async function
-    message.job_builder().build().unwrap().do_run();
-}
-
-async fn run_a_job_in_async() {
-    let message = AJob;
-    let _ = message.job_builder().build().unwrap().run().await;
+#[job]
+async fn async_hello(number: i32, number2: i32) {
+    // We support async fn as well
+    println!("Hello {} {number2}", number);
 }
 
 #[main]
 async fn main() {
+    // Start AJ engine
     AJ::quick_start();
 
-    run_a_job_in_async().await;
-    run_a_job();
+    // Wait the job is registered in AJ
+    let _ = hello::run(1, 2).await;
 
+    // Or fire and forget it
+    let _ = async_hello::just_run(3, 4);
+
+    // Sleep 1 ms to view the result from job
     sleep(Duration::from_secs(1)).await;
 }
 ```

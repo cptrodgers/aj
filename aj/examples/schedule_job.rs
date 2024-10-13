@@ -38,7 +38,7 @@ async fn main() {
         .schedule_at(get_now() + Duration::seconds(2))
         .build()
         .unwrap()
-        .do_run();
+        .just_run();
 
     sleep(std::time::Duration::from_secs(3)).await;
 }

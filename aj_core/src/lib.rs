@@ -47,7 +47,7 @@ where
     }
 
     /// It will just send message to WorkQueue and no gurantee job is inserted to backend
-    pub fn do_run(self) {
+    pub fn just_run(self) {
         use actix_rt::spawn;
 
         spawn(async {
