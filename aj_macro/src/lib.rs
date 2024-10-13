@@ -69,7 +69,7 @@ pub fn job(_attr: TokenStream, item: TokenStream) -> TokenStream {
         .filter_map(|arg| {
             if let FnArg::Typed(PatType { pat, .. }) = arg {
                 if let Pat::Ident(ident) = &**pat {
-                    Some(quote! { self.#ident })
+                    Some(quote! { self.#ident.clone() })
                 } else {
                     None
                 }
@@ -110,6 +110,8 @@ pub fn job(_attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
+        #input_fn
+
         pub mod #fn_name {
             use aj::{BackgroundJob, JobBuilder, JobContext};
 
@@ -131,8 +133,7 @@ pub fn job(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 type Output = #fn_output_type;
 
                 async fn execute(&self, _context: &JobContext) -> Self::Output {
-                    // Re-declare original function
-                    #input_fn
+                    use crate::#fn_name;
 
                     #call_fn
                 }

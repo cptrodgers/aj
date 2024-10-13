@@ -3,49 +3,38 @@
 //! ```rust
 //! use std::time::Duration;
 //!
-//! use aj::{
-//!    async_trait,
-//!    main,
-//!    BackgroundJob, Executable, JobBuilder, JobContext, AJ,
-//!    export::core:: {
-//!        actix_rt::time::sleep,
-//!        serde::{Deserialize, Serialize},
-//!    }
-//! };
+//! use aj::job;
+//! use aj::{export::core::actix_rt::time::sleep, main, AJ};
 //!
-//! #[derive(BackgroundJob, Serialize, Deserialize, Debug, Clone)]
-//! pub struct Print {
-//!     number: i32,
+//! #[job]
+//! fn hello(name: String) {
+//!    println!("Hello {name}");
 //! }
 //!
-//! #[async_trait]
-//! impl Executable for Print {
-//!    type Output = ();
-//!
-//!    async fn execute(&self, _context: &JobContext) -> Self::Output {
-//!        print!("Hello, AJ {}", self.number);
-//!    }
+//! #[job]
+//! async fn async_hello(name: String) {
+//!    // We support async fn as well
+//!    println!("Hello async, {name}");
 //! }
 //!
 //! #[main]
 //! async fn main() {
-//!     AJ::quick_start();
+//!    // Start AJ engine
+//!    AJ::quick_start();
 //!
-//!     // Run with async function
-//!     let message = Print {
-//!         number: 1,
-//!     };
-//!     let _ = message.job_builder().build().unwrap().run().await;
+//!    // Wait the job is registered in AJ
+//!    let _ = hello::run("Rodgers".into()).await;
 //!
-//!     // Run with non async function, no need .await
-//!     let message = Print {
-//!         number: 2,
-//!     };
-//!     message.job_builder().build().unwrap().do_run();
+//!    // Or fire and forget it
+//!    let _ = async_hello::just_run("AJ".into());
 //!
-//!     sleep(Duration::from_secs(1)).await;
+//!    // Sleep 1 ms to view the result from job
+//!    sleep(Duration::from_secs(1)).await;
 //! }
 //! ```
+//!
+//! [More examples](https://github.com/cptrodgers/aj/tree/master/aj/examples)
+//! [Features](https://github.com/cptrodgers/aj/?tab=readme-ov-file#features)
 //!
 
 extern crate aj_macro;
