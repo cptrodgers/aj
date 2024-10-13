@@ -39,12 +39,15 @@
 
 extern crate aj_macro;
 
+pub use aj_core::backend;
+pub use aj_core::job;
+pub use aj_core::retry;
 pub use aj_core::{BackgroundJob, Error, Executable, Job, JobBuilder, JobContext, WorkQueue, AJ};
+pub use aj_macro::job;
 pub use aj_macro::BackgroundJob;
 
 pub use actix_rt::main;
 pub use aj_core::async_trait::async_trait;
-pub use aj_macro::job;
 
 #[doc(hidden)]
 pub mod export {
