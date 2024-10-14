@@ -274,7 +274,7 @@ where
 
             for job_id in job_ids {
                 let job = get_from_storage::<Job<M>>(self.backend.deref(), &job_id)?;
-                if let Some(job) = job {
+                if let Some(mut job) = job {
                     if job.is_ready()
                         && ready_jobs.len() < total
                         && !ready_jobs
@@ -282,6 +282,7 @@ where
                             .any(|ready_job: &Job<M>| ready_job.id == job.id)
                     {
                         // Job is read to process. Put it in the ready list
+                        job.process(self.backend.deref())?;
                         ready_jobs.push(job);
                         self.backend.queue_move(
                             &idle_queue_name,
@@ -341,7 +342,7 @@ where
             job.id
         );
         if let Some(retry_context) = job.context.retry.as_mut() {
-            if let Some(next_retry_ms) = job.data.should_retry(retry_context, job_output).await {
+            if let Some(next_retry_ms) = job.data.retry_at(retry_context, job_output).await {
                 info!("[WorkQueue] Retry this job. {}", job.id);
                 job.context.job_type = JobType::ScheduledAt(next_retry_ms);
                 return self.re_queue_processing_job(job);

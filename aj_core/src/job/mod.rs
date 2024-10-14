@@ -153,11 +153,15 @@ where
 pub trait Executable {
     type Output: Debug + Send;
 
-    async fn pre_execute(&self, _context: &'_ JobContext) {}
+    async fn pre_execute(&mut self, _context: &'_ JobContext) {}
 
-    async fn execute(&self, _context: &'_ JobContext) -> Self::Output;
+    async fn execute(&mut self, _context: &'_ JobContext) -> Self::Output;
 
-    async fn post_execute(&self, output: Self::Output, _context: &'_ JobContext) -> Self::Output {
+    async fn post_execute(
+        &mut self,
+        output: Self::Output,
+        _context: &'_ JobContext,
+    ) -> Self::Output {
         output
     }
 
@@ -168,7 +172,7 @@ pub trait Executable {
     }
 
     // Job will re-run if should_retry return a specific time in the future
-    async fn should_retry(
+    async fn retry_at(
         &self,
         retry_context: &mut Retry,
         job_output: Self::Output,
@@ -185,15 +189,12 @@ pub trait Executable {
 
 impl<M> Job<M>
 where
-    M: Executable + Clone + Serialize + Sync,
+    M: Executable + Clone + Serialize + Sync + Send,
 {
-    pub async fn execute(&mut self) -> <M as Executable>::Output {
+    pub(crate) async fn execute(&mut self) -> <M as Executable>::Output {
         self.data.pre_execute(&self.context).await;
         let output = self.data.execute(&self.context).await;
-        let output = self.data.post_execute(output, &self.context).await;
-        self.context.run_count += 1;
-
-        output
+        self.data.post_execute(output, &self.context).await
     }
 
     pub fn is_ready(&self) -> bool {
@@ -223,7 +224,7 @@ where
         }
     }
 
-    pub fn next_tick(&mut self) -> Option<Self> {
+    pub(crate) fn next_tick(&mut self) -> Option<Self> {
         let now = get_now();
         match &self.context.job_type {
             JobType::Cron(cron_expression, _, total_repeat, context) => {
@@ -277,7 +278,7 @@ where
         self.context.job_status == JobStatus::Canceled
     }
 
-    pub fn is_done(&self) -> bool {
+    pub(crate) fn is_done(&self) -> bool {
         self.context.job_status == JobStatus::Finished
             || self.context.job_status == JobStatus::Canceled
             || self.context.job_status == JobStatus::Failed
@@ -297,21 +298,21 @@ where
         upsert_to_storage(backend, &self.id, self.clone())
     }
 
-    pub fn finish(&mut self, backend: &dyn Backend) -> Result<(), Error> {
+    pub(crate) fn finish(&mut self, backend: &dyn Backend) -> Result<(), Error> {
         debug!("[Job] Finish {}", self.id);
         self.context.job_status = JobStatus::Finished;
         self.context.complete_at = Some(get_now_as_ms());
         upsert_to_storage(backend, &self.id, self.clone())
     }
 
-    pub fn cancel(&mut self, backend: &dyn Backend) -> Result<(), Error> {
+    pub(crate) fn cancel(&mut self, backend: &dyn Backend) -> Result<(), Error> {
         debug!("[Job] Cancel {}", self.id);
         self.context.job_status = JobStatus::Canceled;
         self.context.cancel_at = Some(get_now_as_ms());
         upsert_to_storage(backend, &self.id, self.clone())
     }
 
-    pub fn fail(&mut self, backend: &dyn Backend) -> Result<(), Error> {
+    pub(crate) fn fail(&mut self, backend: &dyn Backend) -> Result<(), Error> {
         debug!("[Job] Failed {}", self.id);
         self.context.job_status = JobStatus::Failed;
         self.context.complete_at = Some(get_now_as_ms());
@@ -334,7 +335,7 @@ mod tests {
     impl Executable for TestJob {
         type Output = i32;
 
-        async fn execute(&self, _context: &JobContext) -> Self::Output {
+        async fn execute(&mut self, _context: &JobContext) -> Self::Output {
             self.number
         }
     }

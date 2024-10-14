@@ -19,7 +19,7 @@ pub struct Print {
 impl Executable for Print {
     type Output = Result<(), String>;
 
-    async fn execute(&self, _context: &JobContext) -> Self::Output {
+    async fn execute(&mut self, _context: &JobContext) -> Self::Output {
         println!("Hello {}", self.number);
         Err("I'm failing".into())
     }

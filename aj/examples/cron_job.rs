@@ -15,7 +15,7 @@ pub struct AJob;
 impl Executable for AJob {
     type Output = ();
 
-    async fn execute(&self, _context: &JobContext) -> Self::Output {
+    async fn execute(&mut self, _context: &JobContext) -> Self::Output {
         println!("Hello Job {}", get_now_as_secs());
     }
 }

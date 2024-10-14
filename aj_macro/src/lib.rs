@@ -132,7 +132,7 @@ pub fn job(_attr: TokenStream, item: TokenStream) -> TokenStream {
             impl aj::Executable for #job_struct_name {
                 type Output = #fn_output_type;
 
-                async fn execute(&self, _context: &JobContext) -> Self::Output {
+                async fn execute(&mut self, _context: &JobContext) -> Self::Output {
                     use crate::#fn_name;
 
                     #call_fn
