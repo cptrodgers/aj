@@ -69,6 +69,8 @@ pub fn job(_attr: TokenStream, item: TokenStream) -> TokenStream {
         .filter_map(|arg| {
             if let FnArg::Typed(PatType { pat, .. }) = arg {
                 if let Pat::Ident(ident) = &**pat {
+                    // TODO: This is a not good way to pass variable from struct to fn logic.
+                    // IMHO, the best apporach is transform the original fn code to mapping with struct like destructure, etc to remove clone memory value.
                     Some(quote! { self.#ident.clone() })
                 } else {
                     None
@@ -139,21 +141,36 @@ pub fn job(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 }
             }
 
-            fn new(#fn_inputs) -> #job_struct_name {
-                #job_struct_name {
-                    #(#input_names),*
+            impl #job_struct_name {
+                fn new(#fn_inputs) -> Self {
+                    Self {
+                        #(#input_names),*
+                    }
                 }
             }
 
             pub async fn run(#fn_inputs) -> Result<String, aj::Error> {
-                let msg = new(#(#input_names),*);
+                let msg = #job_struct_name::new(#(#input_names),*);
                 let job_id = msg.job_builder().build()?.run().await?;
                 Ok(job_id)
             }
 
             pub fn just_run(#fn_inputs) -> Result<(), aj::Error> {
-                let msg = new(#(#input_names),*);
+                let msg = #job_struct_name::new(#(#input_names),*);
                 msg.job_builder().build()?.just_run();
+
+                Ok(())
+            }
+
+            pub async fn run_with_context(#fn_inputs, context: aj::JobContext) -> Result<String, aj::Error> {
+                let msg = #job_struct_name::new(#(#input_names),*);
+                let job_id = msg.job_builder().context(context).build()?.run().await?;
+                Ok(job_id)
+            }
+
+            pub fn just_run_with_context(#fn_inputs, context: aj::JobContext) -> Result<(), aj::Error> {
+                let msg = #job_struct_name::new(#(#input_names),*);
+                msg.job_builder().context(context).build()?.just_run();
 
                 Ok(())
             }
