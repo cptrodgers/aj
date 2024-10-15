@@ -21,7 +21,7 @@ pub struct Print {
 impl Executable for Print {
     type Output = ();
 
-    async fn execute(&self, _context: &JobContext) -> Self::Output {
+    async fn execute(&mut self, _context: &JobContext) -> Self::Output {
         println!("Hello Job {}, {}", self.number, get_now());
     }
 }
@@ -40,7 +40,8 @@ async fn main() {
         .await
         .unwrap();
 
-    let _ = AJ::cancel_job::<Print>(job_id).await;
+    let success = AJ::cancel_job::<Print>(job_id).await.is_ok();
+    println!("Cancel: {success}");
 
-    sleep(std::time::Duration::from_secs(5)).await;
+    sleep(std::time::Duration::from_secs(1)).await;
 }

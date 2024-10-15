@@ -98,10 +98,6 @@ where
         format!("{}:queue:{:?}", self.name, status)
     }
 
-    pub fn format_failed_queue_name(&self) -> String {
-        format!("{}:queue:failed", self.name)
-    }
-
     pub fn storage_name(&self) -> String {
         format!("{}:storage", self.name)
     }
@@ -335,6 +331,8 @@ where
         }
 
         let job_output = job.execute().await;
+        let is_failed_output = job.data.is_failed_output(&job_output).await;
+
         info!(
             "[WorkQueue] Execution complete. Job {} - Result: {job_output:?}",
             job.id
@@ -352,7 +350,11 @@ where
             return self.re_enqueue(next_job);
         }
 
-        self.mark_job_is_finished(job)
+        if is_failed_output {
+            self.mark_job_is_failed(job)
+        } else {
+            self.mark_job_is_finished(job)
+        }
     }
 
     pub fn cancel_job(&self, job_id: &str) -> Result<(), Error> {

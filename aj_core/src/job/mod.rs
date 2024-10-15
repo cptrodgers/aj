@@ -110,7 +110,7 @@ where
         if let Some(context) = &mut self.context {
             context.job_type = JobType::new_schedule(schedule_at);
         } else {
-            let mut context = JobContext::default();
+            let mut context = JobContextBuilder::default().build().unwrap();
             context.job_type = JobType::new_schedule(schedule_at);
             self.context(context);
         }
@@ -128,7 +128,7 @@ where
         if let Some(context) = &mut self.context {
             context.job_type = cron;
         } else {
-            let mut context = JobContext::default();
+            let mut context = JobContextBuilder::default().build().unwrap();
             context.job_type = cron;
             self.context(context);
         }
@@ -140,7 +140,7 @@ where
         if let Some(context) = &mut self.context {
             context.retry = Some(retry);
         } else {
-            let mut context = JobContext::default();
+            let mut context = JobContextBuilder::default().build().unwrap();
             context.retry = Some(retry);
             self.context(context);
         }
@@ -167,7 +167,7 @@ pub trait Executable {
 
     // Identify job is failed or not. Default is false
     // You can change id_failed_output logic to handle retry logic
-    async fn is_failed_output(&self, _job_output: Self::Output) -> bool {
+    async fn is_failed_output(&self, _job_output: &Self::Output) -> bool {
         false
     }
 
@@ -177,7 +177,7 @@ pub trait Executable {
         retry_context: &mut Retry,
         job_output: Self::Output,
     ) -> Option<DateTime<Utc>> {
-        let should_retry = self.is_failed_output(job_output).await && retry_context.should_retry();
+        let should_retry = self.is_failed_output(&job_output).await && retry_context.should_retry();
 
         if should_retry {
             Some(retry_context.retry_at(None))
@@ -192,6 +192,9 @@ where
     M: Executable + Clone + Serialize + Sync + Send,
 {
     pub(crate) async fn execute(&mut self) -> <M as Executable>::Output {
+        // Log Count
+        self.context.run_count += 1;
+
         self.data.pre_execute(&self.context).await;
         let output = self.data.execute(&self.context).await;
         self.data.post_execute(output, &self.context).await
