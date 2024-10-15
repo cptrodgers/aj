@@ -5,13 +5,9 @@ Aj is a simple, customize-able, and feature-rich background job processing libra
 
 ## Usage
 
-```rust
-use std::time::Duration;
 
-use aj::{
-    export::core::actix_rt::time::sleep,
-    main, AJ,
-};
+
+```rust
 use aj::job;
 
 #[job]

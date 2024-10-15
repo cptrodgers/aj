@@ -790,6 +790,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "retry"
+version = "0.1.0"
+dependencies = [
+ "actix-rt",
+ "aj 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "chrono",
+ "serde",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
