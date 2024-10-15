@@ -6,7 +6,6 @@ use crate::JobBuilderError;
 #[derive(Debug)]
 pub enum Error {
     Redis(RedisError),
-    ExecutionError(String),
     CronError(cron::error::Error),
     MailboxError(MailboxError),
     BuidlerError(JobBuilderError),

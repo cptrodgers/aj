@@ -21,7 +21,7 @@ impl Redis {
 
     pub fn lpush(&self, queue_name: &str, item: &str) -> RedisResult<()> {
         let mut conn = self.client.get_connection()?;
-        conn.lpush(queue_name, item)?;
+        let _: () = conn.lpush(queue_name, item)?;
         Ok(())
     }
 
@@ -122,7 +122,7 @@ impl Backend for Redis {
 
     fn storage_upsert(&self, hash: &str, key: &str, value: String) -> Result<(), Error> {
         let mut conn = self.client.get_connection()?;
-        conn.hset(hash, key, value)?;
+        let _: () = conn.hset(hash, key, value)?;
         Ok(())
     }
 
