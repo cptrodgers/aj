@@ -26,7 +26,7 @@ impl Executable for Print {
 
     // Determine where your job is failed.
     // For example, check job output is return Err type
-    async fn is_failed_output(&self, job_output: Self::Output) -> bool {
+    async fn is_failed_output(&self, job_output: &Self::Output) -> bool {
         job_output.is_err()
     }
 }
