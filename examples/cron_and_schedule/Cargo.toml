@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-aj = "0.6.2"
+aj = { version = "=0.6.3", path = "../../aj" }
 serde = { version = "1.0.64", features = ["derive"] }
 actix-rt = "2.2"
 chrono = { version = "0.4.34" }

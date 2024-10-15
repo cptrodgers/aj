@@ -21,7 +21,7 @@ pub struct Print {
 impl Executable for Print {
     type Output = ();
 
-    async fn execute(&self, _context: &JobContext) -> Self::Output {
+    async fn execute(&mut self, _context: &JobContext) -> Self::Output {
         println!("Hello Job {}, {}", self.number, get_now());
     }
 }

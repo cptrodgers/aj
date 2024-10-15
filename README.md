@@ -6,7 +6,7 @@ Aj is a simple, customize-able, and feature-rich background job processing libra
 ## Install
 
 ```toml
-aj = "0.6.2"
+aj = "0.6.3"
 serde = { version = "1.0.64", features = ["derive"] } # Serialize and deserialize the job
 actix-rt = "2.2" # Actor model runtime engine
 ```
@@ -186,13 +186,14 @@ AJ::update_job(
 [Example](https://github.com/cptrodgers/aj/blob/master/examples/cancel_job/src/main.rs#L43)
 
 ```rust
-let _ = AJ::cancel_job::<Print>(&job_id).await;
+let result = AJ::cancel_job::<Print>(&job_id).await;
+let success = result.is_ok();
 ```
 
 ### Get Job
 
 ```rust
-let _ = AJ::get_job::<Print>(&job_id).await;
+let job = AJ::get_job::<Print>(&job_id).await;
 ```
 
 ### Retry
@@ -239,20 +240,41 @@ let _ = job.run().await;
 ```
 
 **Exponential Strategy**
+
 TBD
 
 **Custom Strategy**
+
 TBD
 
 #### Manual Retry
 
-TBD
+You can also manually retry a 'Done' job (status: finished, failed, or cancelled).
+This is useful for applications that have a UI allowing users to retry the job.
 
-### Custom Backend
+```rust
+AJ::retry_job::<Print>(&job_id).await.unwrap();
+```
+
+### Custom Backend (Both Broker and Storage)
+If you wish to customize the backend of AJ, such as using Postgres, MySQL, Kafka, RabbitMQ, etc.,
+you can implement the `Backend` trait and then use it in AJ.
 
 [In Memory Example](https://github.com/cptrodgers/aj/blob/master/aj_core/src/backend/mem.rs)
 
-You can implment `Backend` trait to use other database / service as Backend for `AJ`.
+```rust
+pub YourBackend {
+...
+}
+
+impl Backend for YourBackend {
+    ...
+}
+
+// Use it, just replace Redis by your backend.
+AJ::start(YourBackend::new());
+```
+
 
 ### Config Processing Speed
 

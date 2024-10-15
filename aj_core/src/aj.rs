@@ -11,7 +11,7 @@ use crate::job::Job;
 use crate::mem::InMemory;
 use crate::queue::{cancel_job, enqueue_job, WorkQueue};
 use crate::types::Backend;
-use crate::{get_job, BackgroundJob, EnqueueConfig, Error, Executable, JobContext};
+use crate::{get_job, retry_job, BackgroundJob, EnqueueConfig, Error, Executable, JobContext};
 
 lazy_static! {
     static ref QUEUE_REGISTRY: Registry = Registry::default();
@@ -191,6 +191,19 @@ impl AJ {
         }
 
         Ok(())
+    }
+
+    pub async fn retry_job<M>(job_id: &str) -> Result<bool, Error>
+    where
+        M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+        WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
+    {
+        let addr: Option<Addr<WorkQueue<M>>> = get_work_queue_address();
+        if let Some(queue_addr) = addr {
+            retry_job(queue_addr, job_id).await
+        } else {
+            Err(Error::NoQueueRegister)
+        }
     }
 
     pub async fn add_job<M>(job: Job<M>, queue_name: &str) -> Result<String, Error>

@@ -98,10 +98,6 @@ where
         format!("{}:queue:{:?}", self.name, status)
     }
 
-    pub fn format_failed_queue_name(&self) -> String {
-        format!("{}:queue:failed", self.name)
-    }
-
     pub fn storage_name(&self) -> String {
         format!("{}:storage", self.name)
     }
@@ -152,13 +148,11 @@ where
         job.enqueue(self.backend.deref())
     }
 
-    // Push processing job if
-    // 1. Job is done and still have next tick (cron job).
-    // 2. Job ran failed and have retry logic
-    pub fn re_queue_processing_job(&self, mut job: Job<M>) -> Result<(), Error> {
+    pub fn re_enqueue(&self, mut job: Job<M>) -> Result<(), Error> {
         debug!("[WorkQueue] Re-run job {}", job.id);
 
-        self.remove_processing_job(&job.id);
+        let current_queue = self.format_queue_name(job.context.job_status);
+        self.backend.queue_remove(&current_queue, &job.id)?;
         job.enqueue(self.backend.deref())?;
 
         let queued_queue = self.format_queue_name(JobStatus::Queued);
@@ -337,6 +331,8 @@ where
         }
 
         let job_output = job.execute().await;
+        let is_failed_output = job.data.is_failed_output(&job_output).await;
+
         info!(
             "[WorkQueue] Execution complete. Job {} - Result: {job_output:?}",
             job.id
@@ -345,16 +341,20 @@ where
             if let Some(next_retry_ms) = job.data.retry_at(retry_context, job_output).await {
                 info!("[WorkQueue] Retry this job. {}", job.id);
                 job.context.job_type = JobType::ScheduledAt(next_retry_ms);
-                return self.re_queue_processing_job(job);
+                return self.re_enqueue(job);
             }
         }
 
         // If this is interval job (has next tick) -> re_enqueue it
         if let Some(next_job) = job.next_tick() {
-            return self.re_queue_processing_job(next_job);
+            return self.re_enqueue(next_job);
         }
 
-        self.mark_job_is_finished(job)
+        if is_failed_output {
+            self.mark_job_is_failed(job)
+        } else {
+            self.mark_job_is_finished(job)
+        }
     }
 
     pub fn cancel_job(&self, job_id: &str) -> Result<(), Error> {
@@ -375,6 +375,27 @@ where
     pub fn get_job(&self, job_id: &str) -> Result<Option<Job<M>>, Error> {
         let job = get_from_storage::<Job<M>>(self.backend.deref(), job_id)?;
         Ok(job)
+    }
+
+    pub fn retry_job(&self, job_id: &str) -> Result<bool, Error> {
+        let job = get_from_storage::<Job<M>>(self.backend.deref(), job_id)?;
+
+        if let Some(job) = job {
+            // Only allow retry done job (cancelled, failed, finished).
+            if job.is_done() {
+                self.re_enqueue(job)?;
+                return Ok(true);
+            } else {
+                debug!(
+                    "[WorkQueue] Cannot retry job {} in status {:?}",
+                    job_id, job.context.job_status
+                );
+                return Ok(false);
+            }
+        };
+
+        debug!("[WorkQueue] Don't found job {} to retry", job_id);
+        Ok(false)
     }
 }
 
@@ -469,4 +490,38 @@ where
         _phantom: PhantomData,
     };
     addr.send::<GetJob<M>>(msg).await.ok().flatten()
+}
+
+#[derive(Message, Debug)]
+#[rtype(result = "Result<bool, Error>")]
+pub struct RetryJob<M>
+where
+    M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+{
+    pub job_id: String,
+    _phantom: PhantomData<M>,
+}
+
+impl<M> Handler<RetryJob<M>> for WorkQueue<M>
+where
+    M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+    WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
+{
+    type Result = Result<bool, Error>;
+
+    fn handle(&mut self, msg: RetryJob<M>, _: &mut Self::Context) -> Self::Result {
+        self.retry_job(&msg.job_id)
+    }
+}
+
+pub async fn retry_job<M>(addr: Addr<WorkQueue<M>>, job_id: &str) -> Result<bool, Error>
+where
+    M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+    WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
+{
+    let msg: RetryJob<M> = RetryJob {
+        job_id: job_id.to_string(),
+        _phantom: PhantomData,
+    };
+    addr.send::<RetryJob<M>>(msg).await?
 }
