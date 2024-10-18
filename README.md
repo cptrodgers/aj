@@ -241,7 +241,18 @@ let _ = job.run().await;
 
 **Exponential Strategy**
 
-TBD
+```rust
+let job = Print { number: 3 }
+    .job_builder()
+    .retry(Retry::new_interval_retry(
+        Some(max_retries),
+        // Initial Backoff value
+        chrono::Duration::seconds(1),
+    ))
+    .build()
+    .unwrap();
+let _ = job.run().await.unwrap();
+```
 
 **Custom Strategy**
 

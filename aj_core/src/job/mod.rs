@@ -351,7 +351,7 @@ mod tests {
     }
 
     #[actix::test]
-    async fn test_normal_job() {
+    async fn test_job() {
         let number = 1;
         let mut default_job = default_job(number);
 
@@ -361,6 +361,8 @@ mod tests {
 
         let output = default_job.execute().await;
         assert_eq!(output, number);
+
+        assert_eq!(default_job.context.run_count, 1);
     }
 
     #[actix::test]
@@ -390,6 +392,47 @@ mod tests {
         assert!(!schedule_job.is_ready());
         let expected_cron = JobType::new_cron(expression, CronContext::default()).unwrap();
         assert!(schedule_job.context.job_type == expected_cron);
+    }
+
+    #[actix::test]
+    async fn test_retry() {
+        #[derive(Default, Debug, Clone, Serialize)]
+        pub struct TestRetryJob {
+            number: i32,
+        }
+
+        #[async_trait]
+        impl Executable for TestRetryJob {
+            type Output = i32;
+
+            async fn execute(&mut self, _: &JobContext) -> Self::Output {
+                self.number
+            }
+
+            async fn is_failed_output(&self, output: &Self::Output) -> bool {
+                output % 2 == 0
+            }
+        }
+
+        // Job with interval retry
+        let max_retries = 3;
+        let retry = Retry::new_interval_retry(Some(max_retries), chrono::Duration::seconds(1));
+        let mut internal_retry_job = JobBuilder::default()
+            .data(TestRetryJob { number: 2 })
+            .retry(retry)
+            .build()
+            .unwrap();
+
+        for _ in 1..=max_retries {
+            let output = internal_retry_job.execute().await;
+            assert!(internal_retry_job.data.is_failed_output(&output).await);
+
+            let should_retry_at = internal_retry_job
+                .data
+                .retry_at(internal_retry_job.context.retry.as_mut().unwrap(), output)
+                .await;
+            assert!(should_retry_at.is_some());
+        }
     }
 }
 
