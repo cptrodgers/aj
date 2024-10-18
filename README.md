@@ -244,7 +244,7 @@ let _ = job.run().await;
 ```rust
 let job = Print { number: 3 }
     .job_builder()
-    .retry(Retry::new_interval_retry(
+    .retry(Retry::new_exponential_backoff(
         Some(max_retries),
         // Initial Backoff value
         chrono::Duration::seconds(1),

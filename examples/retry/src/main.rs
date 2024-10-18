@@ -63,13 +63,13 @@ async fn main() {
     // Exponential Retry 3 times -> Maximum do the job 4 times.
     let job = Print { number: 3 }
         .job_builder()
-        .retry(Retry::new_interval_retry(
+        .retry(Retry::new_exponential_backoff(
             Some(max_retries),
             chrono::Duration::seconds(1),
         ))
         .build()
         .unwrap();
     let _ = job.run().await.unwrap();
-    // Run at 0s, Retry at 1s, 2s, 4s
+    // Run at 0s, Retry at after first job 1s, after second job 2s,.... 4s
     sleep(Duration::from_secs(5)).await;
 }
