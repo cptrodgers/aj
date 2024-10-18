@@ -59,7 +59,9 @@ impl Retry {
         let final_now = now.unwrap_or(get_now());
         match &self.strategy {
             RetryStrategy::Interval(internal_time) => final_now + *internal_time,
-            RetryStrategy::ExponentialBackoff(initial_backoff) => final_now + *initial_backoff * 2_i32.pow(self.retried_times as u32),
+            RetryStrategy::ExponentialBackoff(initial_backoff) => {
+                final_now + *initial_backoff * 2_i32.pow(self.retried_times as u32)
+            }
         }
     }
 }
@@ -102,7 +104,10 @@ mod tests {
             assert!(retry.should_retry());
 
             let first_retry = retry.retry_at(Some(now));
-            assert_eq!(now + initial_backoff * 2_i32.pow(retry_times as u32), first_retry);
+            assert_eq!(
+                now + initial_backoff * 2_i32.pow(retry_times as u32),
+                first_retry
+            );
         }
 
         assert!(!retry.should_retry());
