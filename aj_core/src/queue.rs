@@ -525,3 +525,35 @@ where
     };
     addr.send::<RetryJob<M>>(msg).await?
 }
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct UpdateWorkQueue {
+    pub config: WorkQueueConfig,
+}
+
+impl<M> Handler<UpdateWorkQueue> for WorkQueue<M>
+where
+    M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+    WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
+{
+    type Result = ();
+
+    fn handle(&mut self, msg: UpdateWorkQueue, _: &mut Self::Context) -> Self::Result {
+        self.config = msg.config;
+    }
+}
+
+pub async fn update_work_queue_config<M>(
+    addr: Addr<WorkQueue<M>>,
+    config: WorkQueueConfig,
+) -> Result<(), Error>
+where
+    M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+    WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
+{
+    let msg = UpdateWorkQueue { config };
+
+    addr.send::<UpdateWorkQueue>(msg).await?;
+    Ok(())
+}

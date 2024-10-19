@@ -11,7 +11,10 @@ use crate::job::Job;
 use crate::mem::InMemory;
 use crate::queue::{cancel_job, enqueue_job, WorkQueue};
 use crate::types::Backend;
-use crate::{get_job, retry_job, BackgroundJob, EnqueueConfig, Error, Executable, JobContext};
+use crate::{
+    get_job, retry_job, update_work_queue_config, BackgroundJob, EnqueueConfig, Error, Executable,
+    JobContext, WorkQueueConfig,
+};
 
 lazy_static! {
     static ref QUEUE_REGISTRY: Registry = Registry::default();
@@ -215,6 +218,19 @@ impl AJ {
         let config = EnqueueConfig::new_re_run();
         Self::enqueue_job(job, config, queue_name).await?;
         Ok(job_id)
+    }
+
+    pub async fn update_work_queue<M>(config: WorkQueueConfig) -> Result<(), Error>
+    where
+        M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+        WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
+    {
+        let addr: Option<Addr<WorkQueue<M>>> = get_work_queue_address();
+        if let Some(queue_addr) = addr {
+            update_work_queue_config(queue_addr, config).await
+        } else {
+            Err(Error::NoQueueRegister)
+        }
     }
 }
 

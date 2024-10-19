@@ -289,7 +289,14 @@ AJ::start(YourBackend::new());
 
 ### Config Processing Speed
 
-TBD
+```rust
+AJ::update_work_queue(aj::queue:WorkQueueConfig {
+    // 50 ms will fetch job again
+    process_tick_duration: choro::Duration::milliseconds(50),
+    // Only process 10 jobs at time
+    max_processing_jobs: 10,
+}).await;
+```
 
 ### Distributed Mode
 
