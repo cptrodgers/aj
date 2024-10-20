@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "aj_core"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "actix",
  "actix-rt",
@@ -107,7 +107,7 @@ dependencies = [
 
 [[package]]
 name = "aj_macro"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "aj_core",
  "convert_case",
