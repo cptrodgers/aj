@@ -36,9 +36,6 @@
 //! [More examples](https://github.com/cptrodgers/aj/tree/master/aj/examples)
 //! [Features](https://github.com/cptrodgers/aj/?tab=readme-ov-file#features)
 //!
-
-extern crate aj_macro;
-
 pub use aj_core::backend;
 pub use aj_core::job;
 pub use aj_core::queue;

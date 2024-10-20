@@ -76,11 +76,24 @@ checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 
 [[package]]
 name = "aj"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "actix-rt",
- "aj_core",
- "aj_macro",
+ "aj_core 0.6.4",
+ "aj_macro 0.6.4",
+ "lazy_static",
+ "serde",
+]
+
+[[package]]
+name = "aj"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6645edb4f100bd37338d60d1e9fb1d143820c5d2d38f531504008c0ce0f5ec31"
+dependencies = [
+ "actix-rt",
+ "aj_core 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "aj_macro 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static",
  "serde",
 ]
@@ -106,10 +119,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "aj_core"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae28e8f6f515f1f4962dadc30af19b852081aaf2f68cf8f8e526d0a4ab482b82"
+dependencies = [
+ "actix",
+ "actix-rt",
+ "async-trait",
+ "chrono",
+ "cron",
+ "dashmap",
+ "derive_builder",
+ "lazy_static",
+ "log",
+ "redis",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "uuid",
+]
+
+[[package]]
 name = "aj_macro"
 version = "0.6.4"
 dependencies = [
- "aj_core",
+ "aj_core 0.6.4",
+ "convert_case",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "aj_macro"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee47c815e486929bfff72eccfe9643e7ecdfbd46990ad7dfb5e9cde7d35d7400"
+dependencies = [
+ "aj_core 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "convert_case",
  "proc-macro2",
  "quote",
@@ -192,7 +240,7 @@ name = "cancel_job"
 version = "0.1.0"
 dependencies = [
  "actix-rt",
- "aj",
+ "aj 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono",
  "serde",
 ]
@@ -727,7 +775,7 @@ name = "redis_backend"
 version = "0.1.0"
 dependencies = [
  "actix-rt",
- "aj",
+ "aj 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono",
  "serde",
 ]
@@ -746,7 +794,7 @@ name = "retry"
 version = "0.1.0"
 dependencies = [
  "actix-rt",
- "aj",
+ "aj 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono",
  "serde",
 ]
@@ -768,7 +816,7 @@ name = "schedule_and_retry_job"
 version = "0.1.0"
 dependencies = [
  "actix-rt",
- "aj",
+ "aj 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono",
  "serde",
 ]
@@ -867,7 +915,7 @@ name = "simple_job"
 version = "0.1.0"
 dependencies = [
  "actix-rt",
- "aj",
+ "aj 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
 ]
 
@@ -1012,7 +1060,7 @@ name = "update_job"
 version = "0.1.0"
 dependencies = [
  "actix-rt",
- "aj",
+ "aj 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono",
  "serde",
 ]
