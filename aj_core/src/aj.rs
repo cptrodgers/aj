@@ -64,6 +64,11 @@ impl Actor for AJ {
 impl AJ {
     // Will use memory as Backend for AJ
     pub fn start(backend: impl Backend + Send + Sync + 'static) -> Addr<Self> {
+        if let Some(aj_addr) = get_aj_address() {
+            warn!("AJ is running. Return current AJ");
+            return aj_addr;
+        }
+
         match System::try_current() {
             Some(_) => {
                 info!("Found Actix Runtime, re-use it!");
@@ -254,5 +259,27 @@ where
 
     fn handle(&mut self, msg: InitWorkQueue<M>, _: &mut Self::Context) -> Self::Result {
         self.register(&msg.queue_name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{get_aj_address, AJ};
+
+    #[test]
+    fn test_start_aj() {
+        let addr = AJ::quick_start();
+        let register_addr = get_aj_address();
+
+        assert!(register_addr.is_some());
+        assert_eq!(addr, register_addr.unwrap());
+    }
+
+    #[test]
+    fn test_start_multiple_times() {
+        let addr = AJ::quick_start();
+        let second_addr = AJ::quick_start();
+
+        assert_eq!(addr, second_addr);
     }
 }
