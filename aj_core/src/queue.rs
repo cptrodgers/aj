@@ -250,7 +250,7 @@ where
     }
 
     pub fn try_pick_specific_ready_jobs(&self, total: usize) -> Result<Vec<Job<M>>, Error> {
-        info!("Try Picking {total} jobs in queue");
+        debug!("Try Picking {total} jobs in queue");
         let idle_queue_name = self.format_queue_name(JobStatus::Queued);
         let processing_queue_name = self.format_queue_name(JobStatus::Running);
 
@@ -381,7 +381,7 @@ where
         let job = get_from_storage::<Job<M>>(self.backend.deref(), job_id)?;
 
         if let Some(job) = job {
-            // Only allow retry done job (cancelled, failed, finished).
+            // Only allow retry done job is (cancelled, failed, finished).
             if job.is_done() {
                 self.re_enqueue(job)?;
                 return Ok(true);
