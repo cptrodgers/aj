@@ -1,6 +1,6 @@
 [package]
 name = "aj_core"
-version = "0.6.4"
+version = "0.6.5"
 edition = "2021"
 authors = ["cptrodgers <me@cptrodgers.com>"]
 description = "Background Job based on Actix"

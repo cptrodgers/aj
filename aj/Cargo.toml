@@ -1,6 +1,6 @@
 [package]
 name = "aj"
-version = "0.6.4"
+version = "0.6.5"
 edition = "2021"
 authors = ["cptrodgers <me@cptrodgers.com>"]
 description = "Background Job based on Actix"
@@ -18,8 +18,8 @@ name = "aj"
 
 
 [dependencies]
-aj_macro = { version = "=0.6.4", path = "../aj_macro" }
-aj_core = { version = "=0.6.4", path = "../aj_core" }
+aj_macro = { version = "=0.6.5", path = "../aj_macro" }
+aj_core = { version = "=0.6.5", path = "../aj_core" }
 serde = { version = "1.0.64", features = ["derive"] }
 actix-rt = "2.2"
 lazy_static = { version = "1.4.0" }
