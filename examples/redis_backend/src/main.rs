@@ -5,7 +5,7 @@ use aj::{
         redis::Redis,
         serde::{Deserialize, Serialize},
     },
-    main, BackgroundJob, Executable, JobBuilder, JobContext, AJ,
+    main, BackgroundJob, Executable, JobContext, AJ,
 };
 use chrono::{DateTime, Utc};
 
@@ -33,10 +33,8 @@ async fn main() {
 
     // Run cron job every secs
     let job_id = Print { number: 1 }
-        .job_builder()
+        .job()
         .cron("* * * * * * *")
-        .build()
-        .unwrap()
         .run()
         .await
         .unwrap();
