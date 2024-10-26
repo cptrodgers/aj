@@ -1,6 +1,6 @@
-pub mod retry;
 pub mod executable;
 pub mod job_context;
+pub mod retry;
 
 pub use executable::*;
 pub use job_context::*;
@@ -10,9 +10,9 @@ use chrono::Duration;
 use chrono::{DateTime, Utc};
 use cron::Schedule;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use std::fmt::Debug;
 use std::str::FromStr;
+use uuid::Uuid;
 
 use crate::types::{upsert_to_storage, Backend};
 use crate::util::{get_now, get_now_as_ms};
@@ -26,7 +26,8 @@ pub struct Job<M: Executable + Clone> {
 }
 
 impl<M> Job<M>
-where M: Executable + Clone
+where
+    M: Executable + Clone,
 {
     /// Create a new job.
     /// ```no_run
@@ -281,8 +282,7 @@ mod tests {
     async fn test_schedule_job() {
         let number = 1;
         let schedule_at = get_now() + Duration::from_secs(1);
-        let schedule_job = Job::new(TestJob { number })
-            .schedule_at(schedule_at);
+        let schedule_job = Job::new(TestJob { number }).schedule_at(schedule_at);
 
         assert!(!schedule_job.is_ready());
         assert!(schedule_job.context.job_type == JobType::ScheduledAt(schedule_at))
@@ -322,8 +322,7 @@ mod tests {
         // Job with interval retry
         let max_retries = 3;
         let retry = Retry::new_interval_retry(Some(max_retries), chrono::Duration::seconds(1));
-        let mut internal_retry_job = Job::new(TestRetryJob { number: 2 })
-            .retry(retry);
+        let mut internal_retry_job = Job::new(TestRetryJob { number: 2 }).retry(retry);
 
         for _ in 1..=max_retries {
             let output = internal_retry_job.execute().await;

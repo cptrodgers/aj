@@ -1,6 +1,6 @@
-use std::fmt::Debug;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use std::fmt::Debug;
 
 use super::{job_context::JobContext, retry::Retry};
 

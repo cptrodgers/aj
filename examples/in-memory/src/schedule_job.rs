@@ -4,7 +4,7 @@ use chrono::Duration;
 
 use crate::print_job::{get_now, Print};
 
-async fn run() {
+pub async fn run() {
     // Delay 1 sec and run
     let _ = Print { number: 1 }
         .job()
@@ -20,11 +20,7 @@ async fn run() {
         .await;
 
     // Cron
-    let _ = Print { number: 3 }
-        .job()
-        .cron("* * * * * * *")
-        .run()
-        .await;
+    let _ = Print { number: 3 }.job().cron("* * * * * * *").run().await;
 
     sleep(std::time::Duration::from_secs(5)).await;
 }

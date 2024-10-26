@@ -3,7 +3,7 @@ use aj::{BackgroundJob, AJ};
 
 use crate::print_job::Print;
 
-async fn main() {
+pub async fn run() {
     // Run cron job every secs
     let job_id = Print { number: 1 }
         .job()

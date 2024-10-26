@@ -1,11 +1,8 @@
-use aj::{
-    export::core::actix_rt::time::sleep,
-    BackgroundJob, AJ,
-};
+use aj::{export::core::actix_rt::time::sleep, BackgroundJob, AJ};
 
 use crate::print_job::Print;
 
-pub async fn run_cancel_job_examples() {
+pub async fn run() {
     // Cron
     let job_id = Print { number: 3 }
         .job()

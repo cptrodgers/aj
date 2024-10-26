@@ -1,17 +1,18 @@
 use actix_rt::time::sleep;
-use aj::{job::{JobStatus, Retry}, BackgroundJob, AJ};
+use aj::{
+    job::{JobStatus, Retry},
+    BackgroundJob, AJ,
+};
 
 use crate::print_job::Print;
 
-async fn run() {
+pub async fn run() {
     let max_retries = 3;
     // Retry 3 times -> Maximum do the job 4 times.
-    let job = Print { number: 1 }
-        .job()
-        .retry(Retry::new_interval_retry(
-            Some(max_retries),
-            chrono::Duration::seconds(1),
-        ));
+    let job = Print { number: 1 }.job().retry(Retry::new_interval_retry(
+        Some(max_retries),
+        chrono::Duration::seconds(1),
+    ));
     let job_id = job.run().await.unwrap();
 
     sleep(std::time::Duration::from_secs(5)).await;

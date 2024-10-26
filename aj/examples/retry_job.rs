@@ -37,12 +37,10 @@ async fn main() {
 
     let max_retries = 3;
     // Retry 3 times -> Maximum do the job 4 times.
-    let job = Print { number: 1 }
-        .job()
-        .retry(Retry::new_interval_retry(
-            Some(max_retries),
-            aj_core::chrono::Duration::seconds(1),
-        ));
+    let job = Print { number: 1 }.job().retry(Retry::new_interval_retry(
+        Some(max_retries),
+        aj_core::chrono::Duration::seconds(1),
+    ));
     let _ = job.run().await;
 
     sleep(Duration::from_secs(5)).await;

@@ -26,11 +26,7 @@ async fn main() {
     AJ::quick_start();
 
     println!("Start time {}", get_now_as_secs());
-    let _ = AJob
-        .job()
-        .delay(Duration::seconds(1))
-        .run()
-        .await;
+    let _ = AJob.job().delay(Duration::seconds(1)).run().await;
 
     AJob.job()
         .schedule_at(get_now() + Duration::seconds(2))
