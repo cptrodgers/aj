@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "^1.40.0", features = ["full"] }
-aj = { version = "0.6.5" }
+aj = { version = "0.6.6" }
 serde = { version = "1.0.64", features = ["derive"] }

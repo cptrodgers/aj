@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use aj::job;
-use aj::{export::core::actix_rt::time::sleep, AJ};
+use aj::AJ;
 
 #[job]
 fn hello(name: String) {
@@ -17,9 +17,7 @@ async fn async_hello(name: String) {
 #[tokio::main]
 async fn main() {
     // Start AJ engine
-    std::thread::spawn(|| {
-        AJ::quick_start();
-    }).join().expect("Panicked thread");
+    AJ::quick_start();
 
     // Wait the job is registered in AJ
     let _ = hello::run("Rodgers".into()).await;

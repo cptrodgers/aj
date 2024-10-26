@@ -76,9 +76,9 @@ checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 
 [[package]]
 name = "aj"
-version = "0.6.5"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f8c755294a78dfe60f3f58ae79c013b66f0b0325044db39d8dc9bb614197872"
+checksum = "0abbdbc4262f84b85ab3393d22647d6b22f44d75b67b65048826bbe5781f7e99"
 dependencies = [
  "actix-rt",
  "aj_core",
@@ -89,9 +89,9 @@ dependencies = [
 
 [[package]]
 name = "aj_core"
-version = "0.6.5"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a1e7db7b3f3d7c5ba30e7fd77d93ce0f4a0c42d60a653344442ed9b34dc35a7"
+checksum = "d93d9f1aee1055ee373b7155b95d729c7103c256c1475bd9ebe94ab9c69504c1"
 dependencies = [
  "actix",
  "actix-rt",
@@ -106,14 +106,15 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+ "tokio 1.41.0",
  "uuid",
 ]
 
 [[package]]
 name = "aj_macro"
-version = "0.6.5"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8d288a3cff3900ff2c0abdc4abc998bb7f0d5d6f76dba9979006c6c444e3406"
+checksum = "93299b9f1735e7860abf60e7525b26d5e20d56cef73029221116f81d42581e5d"
 dependencies = [
  "aj_core",
  "convert_case",
