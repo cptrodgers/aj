@@ -6,7 +6,7 @@ use aj::{
         actix_rt::time::sleep,
         serde::{Deserialize, Serialize},
     },
-    main, BackgroundJob, Executable, JobBuilder, JobContext, AJ,
+    main, BackgroundJob, Executable, JobContext, AJ,
 };
 use aj_core::retry::Retry;
 
@@ -38,13 +38,11 @@ async fn main() {
     let max_retries = 3;
     // Retry 3 times -> Maximum do the job 4 times.
     let job = Print { number: 1 }
-        .job_builder()
+        .job()
         .retry(Retry::new_interval_retry(
             Some(max_retries),
             aj_core::chrono::Duration::seconds(1),
-        ))
-        .build()
-        .unwrap();
+        ));
     let _ = job.run().await;
 
     sleep(Duration::from_secs(5)).await;

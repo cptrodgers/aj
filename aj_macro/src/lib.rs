@@ -16,11 +16,8 @@ pub fn background_job_derive(input: TokenStream) -> TokenStream {
                 stringify!(#name)
             }
 
-            fn job_builder(self) -> JobBuilder<Self> {
-                let mut job_builder = JobBuilder::default();
-                job_builder.data(self);
-
-                job_builder
+            fn job(self) -> aj::Job<Self> {
+                aj::Job::new(self)
             }
         }
     };
@@ -115,7 +112,7 @@ pub fn job(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #input_fn
 
         pub mod #fn_name {
-            use aj::{BackgroundJob, JobBuilder, JobContext};
+            use aj::{BackgroundJob, JobContext};
 
             // Define a new trait
             #[derive(
@@ -151,28 +148,24 @@ pub fn job(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
             pub async fn run(#fn_inputs) -> Result<String, aj::Error> {
                 let msg = #job_struct_name::new(#(#input_names),*);
-                let job_id = msg.job_builder().build()?.run().await?;
+                let job_id = msg.job().run().await?;
                 Ok(job_id)
             }
 
-            pub fn just_run(#fn_inputs) -> Result<(), aj::Error> {
+            pub fn just_run(#fn_inputs) {
                 let msg = #job_struct_name::new(#(#input_names),*);
-                msg.job_builder().build()?.just_run();
-
-                Ok(())
+                msg.job().just_run();
             }
 
             pub async fn run_with_context(#fn_inputs, context: aj::JobContext) -> Result<String, aj::Error> {
                 let msg = #job_struct_name::new(#(#input_names),*);
-                let job_id = msg.job_builder().context(context).build()?.run().await?;
+                let job_id = msg.job().context(context).run().await?;
                 Ok(job_id)
             }
 
-            pub fn just_run_with_context(#fn_inputs, context: aj::JobContext) -> Result<(), aj::Error> {
+            pub fn just_run_with_context(#fn_inputs, context: aj::JobContext) {
                 let msg = #job_struct_name::new(#(#input_names),*);
-                msg.job_builder().context(context).build()?.just_run();
-
-                Ok(())
+                msg.job().context(context).just_run();
             }
         }
     };

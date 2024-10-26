@@ -5,7 +5,7 @@ use aj::{
         chrono::Duration,
         serde::{Deserialize, Serialize},
     },
-    main, BackgroundJob, Executable, JobBuilder, JobContext, AJ,
+    main, BackgroundJob, Executable, JobContext, AJ,
 };
 use aj_core::{get_now, get_now_as_secs};
 
@@ -27,17 +27,13 @@ async fn main() {
 
     println!("Start time {}", get_now_as_secs());
     let _ = AJob
-        .job_builder()
+        .job()
         .delay(Duration::seconds(1))
-        .build()
-        .unwrap()
         .run()
         .await;
 
-    AJob.job_builder()
+    AJob.job()
         .schedule_at(get_now() + Duration::seconds(2))
-        .build()
-        .unwrap()
         .just_run();
 
     sleep(std::time::Duration::from_secs(3)).await;

@@ -6,7 +6,7 @@ use aj::{
         get_now_as_secs,
         serde::{Deserialize, Serialize},
     },
-    main, BackgroundJob, Executable, JobBuilder, JobContext, AJ,
+    main, BackgroundJob, Executable, JobContext, AJ,
 };
 
 #[derive(BackgroundJob, Serialize, Deserialize, Debug, Clone)]
@@ -28,10 +28,8 @@ impl Executable for Print {
 async fn main() {
     AJ::quick_start();
     let job_id = Print { number: 1 }
-        .job_builder()
+        .job()
         .delay(Duration::seconds(1))
-        .build()
-        .unwrap()
         .run()
         .await
         .unwrap();
@@ -39,10 +37,8 @@ async fn main() {
 
     println!("Before run: {}", get_now_as_secs());
     Print { number: 2 }
-        .job_builder()
+        .job()
         .delay(Duration::seconds(1))
-        .build()
-        .unwrap()
         .run()
         .await
         .unwrap();
