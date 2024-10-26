@@ -135,7 +135,7 @@ pub fn job(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 type Output = #fn_output_type;
 
                 async fn execute(&mut self, _context: &JobContext) -> Self::Output {
-                    use crate::#fn_name;
+                    use super::#fn_name;
 
                     #call_fn
                 }
