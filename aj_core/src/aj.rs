@@ -1,5 +1,6 @@
 use actix::*;
 use dashmap::DashMap;
+use fut::wrap_future;
 use lazy_static::lazy_static;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -72,12 +73,24 @@ impl AJ {
         match System::try_current() {
             Some(_) => {
                 info!("Found Actix Runtime, re-use it!");
+                Self::register_addr(backend);
             }
             None => {
-                info!("No Actix Runtime, start new one!");
-                let _ = System::new();
+                info!("No Actix Runtime, trying start new one in separated thread!");
+                std::thread::spawn(|| {
+                    // Start the Actix runtime within this new thread
+                    let _ = System::new();
+                    Self::register_addr(backend);
+                })
+                .join()
+                .expect("Failed to start thread");
             }
         }
+
+        get_aj_address().expect("AJ address must be registered!")
+    }
+
+    fn register_addr(backend: impl Backend + Send + Sync + 'static) -> Addr<Self> {
         let arbiter: Arbiter = Arbiter::new();
         let addr = <Self as Actor>::start_in_arbiter(&arbiter.handle(), |_| Self {
             backend: Arc::new(backend),
@@ -262,17 +275,71 @@ where
     }
 }
 
+/// This message will handle fire and forgot style
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct JustRunJob<M>
+where
+    M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+    WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
+{
+    pub job: Job<M>,
+    pub queue_name: String,
+}
+
+impl<M> Handler<JustRunJob<M>> for AJ
+where
+    M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+    WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
+{
+    type Result = ();
+
+    fn handle(&mut self, msg: JustRunJob<M>, ctx: &mut Self::Context) -> Self::Result {
+        let task = async move {
+            if let Err(reason) = AJ::add_job(msg.job, &msg.queue_name).await {
+                error!("Cannot start job {reason:?}");
+            }
+        };
+        wrap_future::<_, Self>(task).spawn(ctx)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{get_aj_address, AJ};
 
     #[test]
-    fn test_start_aj() {
+    fn test_start_aj_with_non_tokio_runtime() {
         let addr = AJ::quick_start();
         let register_addr = get_aj_address();
 
         assert!(register_addr.is_some());
         assert_eq!(addr, register_addr.unwrap());
+    }
+
+    #[test]
+    fn test_start_aj_under_tokio_runtime() {
+        use tokio::runtime::Builder;
+        let tokio_rt = Builder::new_current_thread().build().unwrap();
+        tokio_rt.block_on(async {
+            let addr = AJ::quick_start();
+            let register_addr = get_aj_address();
+
+            assert!(register_addr.is_some());
+            assert_eq!(addr, register_addr.unwrap());
+        })
+    }
+
+    #[test]
+    fn test_start_aj_under_actix_runtime() {
+        let system = actix_rt::System::new();
+        system.block_on(async {
+            let addr = AJ::quick_start();
+            let register_addr = get_aj_address();
+
+            assert!(register_addr.is_some());
+            assert_eq!(addr, register_addr.unwrap());
+        });
     }
 
     #[test]

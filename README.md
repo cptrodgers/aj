@@ -13,6 +13,13 @@ actix-rt = "2.2" # Actor model runtime engine
 
 ## Features & Usage
 
+## Async Runtime
+
+- [x] No Async runtime.
+- [x] Actix rt
+- [x] [Tokio](/examples/tokio/)
+- [x] Other (smol, async-std). Not tested but it should work because we spawn a os thread to handle actix_rt outside current main thread.
+
 ### Start AJ engine
 
 ```rust

@@ -48,13 +48,11 @@ where
 
     /// It will just send message to WorkQueue and no gurantee job is inserted to backend
     pub fn just_run(self) {
-        use actix_rt::spawn;
-
-        spawn(async {
-            let job_id = self.id.clone();
-            if let Err(e) = AJ::add_job(self, M::queue_name()).await {
-                error!("Cannot queue job {}: {e:?}", job_id.clone());
-            }
-        });
+        if let Some(aj_addr) = get_aj_address() {
+            aj_addr.do_send(JustRunJob {
+                job: self,
+                queue_name: M::queue_name().to_string(),
+            });
+        }
     }
 }
