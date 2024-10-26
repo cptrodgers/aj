@@ -4,7 +4,7 @@ use aj::{
         actix_rt::time::sleep,
         serde::{Deserialize, Serialize},
     },
-    main, BackgroundJob, Executable, JobBuilder, JobContext, AJ,
+    main, BackgroundJob, Executable, JobContext, AJ,
 };
 use aj_core::get_now_as_secs;
 
@@ -25,13 +25,7 @@ async fn main() {
     AJ::quick_start();
 
     println!("Start time {}", get_now_as_secs());
-    let _ = AJob
-        .job_builder()
-        .cron("* * * * * * *")
-        .build()
-        .unwrap()
-        .run()
-        .await;
+    let _ = AJob.job().cron("* * * * * * *").run().await;
 
     sleep(std::time::Duration::from_secs(5)).await;
 }

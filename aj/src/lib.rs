@@ -42,7 +42,7 @@ pub use aj_core::backend::redis;
 pub use aj_core::job;
 pub use aj_core::queue;
 pub use aj_core::retry;
-pub use aj_core::{BackgroundJob, Error, Executable, Job, JobBuilder, JobContext, WorkQueue, AJ};
+pub use aj_core::{BackgroundJob, Error, Executable, Job, JobContext, WorkQueue, AJ};
 pub use aj_macro::job;
 pub use aj_macro::BackgroundJob;
 

@@ -5,7 +5,7 @@ use aj::{
         chrono::Duration,
         serde::{Deserialize, Serialize},
     },
-    main, BackgroundJob, Executable, JobBuilder, JobContext, AJ,
+    main, BackgroundJob, Executable, JobContext, AJ,
 };
 use aj_core::get_now_as_secs;
 
@@ -30,10 +30,8 @@ async fn main() {
     println!("Start time {}", get_now_as_secs());
     // Start a job, get job_id back
     let job_id = Print { number: 1 }
-        .job_builder()
+        .job()
         .delay(Duration::seconds(1))
-        .build()
-        .unwrap()
         .run()
         .await
         .unwrap();

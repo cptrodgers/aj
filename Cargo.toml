@@ -1,3 +1,2 @@
 [workspace]
-members = ["aj", "aj_core", "aj_macro"]
-exclude = ["examples/tokio"]
+members = ["aj", "aj_core", "aj_macro", "examples/*"]

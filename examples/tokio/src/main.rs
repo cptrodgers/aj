@@ -23,7 +23,7 @@ async fn main() {
     let _ = hello::run("Rodgers".into()).await;
 
     // Or fire and forget it
-    let _ = async_hello::just_run("AJ".into());
+    async_hello::just_run("AJ".into());
 
     // Sleep 1 ms to view the result from job
     tokio::time::sleep(Duration::from_secs(1)).await;

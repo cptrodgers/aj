@@ -1,6 +1,6 @@
 [package]
 name = "aj_core"
-version = "0.6.6"
+version = "0.7.0-a.1"
 edition = "2021"
 authors = ["cptrodgers <me@cptrodgers.com>"]
 description = "Background Job based on Actix"
@@ -31,5 +31,4 @@ log = "0.4"
 lazy_static = { version = "1.4.0" }
 async-trait = "0.1.74"
 dashmap = "5.5.3"
-derive_builder = "0.20.0"
 tokio = "1.23.1"

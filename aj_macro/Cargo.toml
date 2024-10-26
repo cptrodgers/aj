@@ -1,6 +1,6 @@
 [package]
 name = "aj_macro"
-version = "0.6.6"
+version = "0.7.0-a.1"
 edition = "2021"
 authors = ["cptrodgers <me@cptrodgers.com>"]
 description = "Derive Macro for aj"
@@ -20,5 +20,5 @@ proc-macro = true
 syn = "2.0"
 quote = "1.0"
 proc-macro2 = "1.0"
-aj_core = { version = "=0.6.6", path = "../aj_core" }
+aj_core = { version = "=0.7.0-a.1", path = "../aj_core" }
 convert_case = "0.6.0"

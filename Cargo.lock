@@ -23,7 +23,7 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "smallvec",
- "tokio",
+ "tokio 1.40.0",
  "tokio-util",
 ]
 
@@ -45,7 +45,7 @@ checksum = "24eda4e2a6e042aa4e55ac438a2ae052d3b5da0ecf83d7411e1a368946925208"
 dependencies = [
  "actix-macros",
  "futures-core",
- "tokio",
+ "tokio 1.40.0",
 ]
 
 [[package]]
@@ -76,7 +76,7 @@ checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 
 [[package]]
 name = "aj"
-version = "0.6.6"
+version = "0.7.0-a.1"
 dependencies = [
  "actix-rt",
  "aj_core",
@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "aj_core"
-version = "0.6.6"
+version = "0.7.0-a.1"
 dependencies = [
  "actix",
  "actix-rt",
@@ -95,20 +95,19 @@ dependencies = [
  "chrono",
  "cron",
  "dashmap",
- "derive_builder",
  "lazy_static",
  "log",
  "redis",
  "serde",
  "serde_json",
  "serde_with",
- "tokio",
+ "tokio 1.40.0",
  "uuid",
 ]
 
 [[package]]
 name = "aj_macro"
-version = "0.6.6"
+version = "0.7.0-a.1"
 dependencies = [
  "aj_core",
  "convert_case",
@@ -328,37 +327,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "derive_builder"
-version = "0.20.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "507dfb09ea8b7fa618fcf76e953f4f5e192547945816d5358edffe39f6f94947"
-dependencies = [
- "derive_builder_macro",
-]
-
-[[package]]
-name = "derive_builder_core"
-version = "0.20.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d5bcf7b024d6835cfb3d473887cd966994907effbe9227e8c8219824d06c4e8"
-dependencies = [
- "darling",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "derive_builder_macro"
-version = "0.20.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab63b0e2bf4d5928aff72e83a7dace85d7bba5fe12dcc3c5a572d78caffd3f3c"
-dependencies = [
- "derive_builder_core",
- "syn",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -493,6 +461,16 @@ checksum = "634d9b1461af396cad843f47fdba5597a4f9e6ddd4bfb6ff5d85028c25cb12f6"
 dependencies = [
  "unicode-bidi",
  "unicode-normalization",
+]
+
+[[package]]
+name = "in-memory"
+version = "0.1.0"
+dependencies = [
+ "actix-rt",
+ "aj",
+ "chrono",
+ "serde",
 ]
 
 [[package]]
@@ -904,6 +882,15 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
+version = "0.1.0"
+dependencies = [
+ "aj",
+ "serde",
+ "tokio 1.40.0",
+]
+
+[[package]]
+name = "tokio"
 version = "1.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2b070231665d27ad9ec9b8df639893f46727666c6767db40317fbe920a5d998"
@@ -916,7 +903,19 @@ dependencies = [
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
+ "tokio-macros",
  "windows-sys",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "693d596312e88961bc67d7f1f97af8a70227d9f90c31bba5806eec004978d752"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -929,7 +928,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "pin-project-lite",
- "tokio",
+ "tokio 1.40.0",
 ]
 
 [[package]]
