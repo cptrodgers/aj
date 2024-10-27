@@ -30,7 +30,7 @@ where
     M: Executable + Clone,
 {
     /// Create a new job.
-    /// ```no_run
+    /// ```ignore
     /// let job = Job::new(Print {
     ///     number: 1,
     /// })
@@ -64,7 +64,7 @@ where
     }
 
     /// Schedule job to run at specific time
-    /// ```no_run
+    /// ```ignore
     /// job.schedule_at(get_now() + Duration::seconds(2));
     /// ```
     pub fn schedule_at(self, schedule_at: DateTime<Utc>) -> Self {
@@ -72,7 +72,7 @@ where
     }
 
     /// Schedule job to run after specific time
-    /// ```no_run
+    /// ```ignore
     /// job.delay(Duration::seconds(2));
     /// ```
     pub fn delay(self, after: Duration) -> Self {
@@ -81,7 +81,7 @@ where
     }
 
     /// Schedule job run by Cron Pattern
-    /// ```no_run
+    /// ```ignore
     /// job.cron("* * * * * * *");
     /// ```
     pub fn cron(self, cron_expression: &str) -> Self {
