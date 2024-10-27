@@ -232,7 +232,7 @@ impl AJ {
         M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
         WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
     {
-        let job_id = job.id.clone();
+        let job_id = job.id().to_string();
         let config = EnqueueConfig::new_re_run();
         Self::enqueue_job(job, config, queue_name).await?;
         Ok(job_id)

@@ -113,24 +113,24 @@ where
     }
 
     pub fn run_with_config(&self, job: Job<M>, config: EnqueueConfig) -> Result<(), Error> {
-        let key = job.id.clone();
-        let existing_job = get_from_storage::<Job<M>>(self.backend.deref(), &key)?;
+        let key = job.id();
+        let existing_job = get_from_storage::<Job<M>>(self.backend.deref(), key)?;
         if let Some(existing_job) = existing_job {
             if config.override_data && !existing_job.is_running() {
                 info!(
                     "[WorkQueue] Update exising job with new job data: {}",
-                    job.id
+                    job.id()
                 );
-                upsert_to_storage(self.backend.deref(), &key, &job)?;
+                upsert_to_storage(self.backend.deref(), key, &job)?;
             } else {
                 info!(
                     "[WorkQueue] Job is running, skip update job data: {}",
-                    job.id
+                    job.id()
                 );
             }
 
             if config.re_run && existing_job.is_done() {
-                info!("[WorkQueue] Re run job {}", existing_job.id);
+                info!("[WorkQueue] Re run job {}", existing_job.id());
                 self.enqueue(job)?;
             }
 
@@ -141,23 +141,23 @@ where
     }
 
     pub fn enqueue(&self, mut job: Job<M>) -> Result<(), Error> {
-        let key = job.id.clone();
+        let key = job.id();
         info!("[WorkQueue] New Job {}", key);
         self.backend
-            .queue_push(&self.format_queue_name(JobStatus::Queued), &key)?;
+            .queue_push(&self.format_queue_name(JobStatus::Queued), key)?;
         job.enqueue(self.backend.deref())
     }
 
     pub fn re_enqueue(&self, mut job: Job<M>) -> Result<(), Error> {
-        debug!("[WorkQueue] Re-run job {}", job.id);
+        debug!("[WorkQueue] Re-run job {}", job.id());
 
         let current_queue = self.format_queue_name(job.context.job_status);
-        self.backend.queue_remove(&current_queue, &job.id)?;
+        self.backend.queue_remove(&current_queue, job.id())?;
         job.enqueue(self.backend.deref())?;
 
         let queued_queue = self.format_queue_name(JobStatus::Queued);
-        if let Err(e) = self.backend.queue_push(&queued_queue, job.id.as_str()) {
-            error!("[WorkQueue] Cannot re enqueue {}: {:?}", job.id, e);
+        if let Err(e) = self.backend.queue_push(&queued_queue, job.id()) {
+            error!("[WorkQueue] Cannot re enqueue {}: {:?}", job.id(), e);
         };
         Ok(())
     }
@@ -171,21 +171,21 @@ where
     }
 
     pub fn mark_job_is_finished(&self, mut job: Job<M>) -> Result<(), Error> {
-        info!("Finish job {}", job.id);
-        self.remove_processing_job(&job.id);
+        info!("Finish job {}", job.id());
+        self.remove_processing_job(job.id());
         job.finish(self.backend.deref())?;
 
         let finished_queue = self.format_queue_name(JobStatus::Finished);
-        if let Err(e) = self.backend.queue_push(&finished_queue, job.id.as_str()) {
-            error!("[WorkQueue] Cannot finish {}: {:?}", job.id, e);
+        if let Err(e) = self.backend.queue_push(&finished_queue, job.id()) {
+            error!("[WorkQueue] Cannot finish {}: {:?}", job.id(), e);
         };
         Ok(())
     }
 
     pub fn mark_job_is_failed(&self, mut job: Job<M>) -> Result<(), Error> {
-        info!("Failed job {}", job.id);
+        info!("Failed job {}", job.id());
         job.fail(self.backend.deref())?;
-        self.push_failed_job(job.id.as_str());
+        self.push_failed_job(job.id());
         Ok(())
     }
 
@@ -273,7 +273,7 @@ where
                         && ready_jobs.len() < total
                         && !ready_jobs
                             .iter()
-                            .any(|ready_job: &Job<M>| ready_job.id == job.id)
+                            .any(|ready_job: &Job<M>| ready_job.id() == job.id())
                     {
                         // Job is read to process. Put it in the ready list
                         job.process(self.backend.deref())?;
@@ -316,7 +316,7 @@ where
         let task = async move {
             // TODO: Consider Smart Pointer to wrap job instead of clone
             if let Err(err) = this.execute_job(job.clone()).await {
-                error!("[WorkQueue] Execute job {} fail: {:?}", job.id, err);
+                error!("[WorkQueue] Execute job {} fail: {:?}", job.id(), err);
                 let _ = this.mark_job_is_failed(job);
             }
         };
@@ -326,7 +326,7 @@ where
     pub async fn execute_job(&self, mut job: Job<M>) -> Result<(), Error> {
         // If job is cancelled, move to cancel queued
         if job.is_cancelled() {
-            self.mark_job_is_canceled(job.id.as_str());
+            self.mark_job_is_canceled(job.id());
             return Ok(());
         }
 
@@ -335,11 +335,11 @@ where
 
         info!(
             "[WorkQueue] Execution complete. Job {} - Result: {job_output:?}",
-            job.id
+            job.id()
         );
         if let Some(retry_context) = job.context.retry.as_mut() {
             if let Some(next_retry_ms) = job.data.retry_at(retry_context, job_output).await {
-                info!("[WorkQueue] Retry this job. {}", job.id);
+                info!("[WorkQueue] Retry this job. {}", job.id());
                 job.context.job_type = JobType::ScheduledAt(next_retry_ms);
                 return self.re_enqueue(job);
             }

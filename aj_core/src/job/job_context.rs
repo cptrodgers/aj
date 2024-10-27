@@ -68,6 +68,8 @@ impl Default for JobStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobContext {
+    #[serde(default)]
+    pub job_id: String,
     pub job_type: JobType,
     pub job_status: JobStatus,
     pub retry: Option<Retry>,
@@ -79,9 +81,10 @@ pub struct JobContext {
     pub run_count: usize,
 }
 
-impl Default for JobContext {
-    fn default() -> Self {
+impl JobContext {
+    pub fn new(job_id: String) -> Self {
         Self {
+            job_id,
             job_type: JobType::Normal,
             job_status: JobStatus::Queued,
             retry: None,

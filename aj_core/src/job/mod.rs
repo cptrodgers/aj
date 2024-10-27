@@ -20,7 +20,6 @@ use crate::Error;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Job<M: Executable + Clone> {
-    pub id: String,
     pub context: JobContext,
     pub data: M,
 }
@@ -31,6 +30,20 @@ where
 {
     /// Create a new job.
     /// ```ignore
+    /// #[derive(BackgroundJob, Serialize, Deserialize, Debug, Clone)]
+    /// pub struct Print {
+    ///    pub number: i32,
+    /// }
+    ///
+    /// #[aj::async_trait]
+    /// impl Execute for Print {
+    ///     type Output = ();
+    ///
+    ///     async fn exeucte(&mut self, _: &JobContext) -> Self::Output {
+    ///         println!("Hello, {}", self.number);
+    ///     }
+    /// }
+    ///
     /// let job = Job::new(Print {
     ///     number: 1,
     /// })
@@ -38,10 +51,20 @@ where
     pub fn new(job: M) -> Job<M> {
         let id = Uuid::new_v4().to_string();
         Self {
-            id,
-            context: JobContext::default(),
+            context: JobContext::new(id),
             data: job,
         }
+    }
+
+    /// Get Job Id
+    pub fn id(&self) -> &str {
+        &self.context.job_id
+    }
+
+    /// Custom job id
+    pub fn set_id(mut self, id: String) -> Self {
+        self.context.job_id = id;
+        self
     }
 
     pub fn set_context(mut self, context: JobContext) -> Self {
@@ -150,7 +173,7 @@ where
                 if schedule.is_err() {
                     error!(
                         "[Job] Cannot parse schedule {cron_expression} of job {}",
-                        job.id
+                        job.id(),
                     );
                     return None;
                 }
@@ -202,38 +225,38 @@ where
     }
 
     pub fn enqueue(&mut self, backend: &dyn Backend) -> Result<(), Error> {
-        debug!("[Job] Enqueue {}", self.id);
+        debug!("[Job] Enqueue {}", self.id());
         self.context.job_status = JobStatus::Queued;
         self.context.enqueue_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, &self.id, self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())
     }
 
     pub fn process(&mut self, backend: &dyn Backend) -> Result<(), Error> {
-        debug!("[Job] Run {}", self.id);
+        debug!("[Job] Run {}", self.id());
         self.context.job_status = JobStatus::Running;
         self.context.run_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, &self.id, self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())
     }
 
     pub(crate) fn finish(&mut self, backend: &dyn Backend) -> Result<(), Error> {
-        debug!("[Job] Finish {}", self.id);
+        debug!("[Job] Finish {}", self.id());
         self.context.job_status = JobStatus::Finished;
         self.context.complete_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, &self.id, self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())
     }
 
     pub(crate) fn cancel(&mut self, backend: &dyn Backend) -> Result<(), Error> {
-        debug!("[Job] Cancel {}", self.id);
+        debug!("[Job] Cancel {}", self.id());
         self.context.job_status = JobStatus::Canceled;
         self.context.cancel_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, &self.id, self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())
     }
 
     pub(crate) fn fail(&mut self, backend: &dyn Backend) -> Result<(), Error> {
-        debug!("[Job] Failed {}", self.id);
+        debug!("[Job] Failed {}", self.id());
         self.context.job_status = JobStatus::Failed;
         self.context.complete_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, &self.id, self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())
     }
 }
 
