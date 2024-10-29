@@ -5,7 +5,7 @@ pub use job_plugin::*;
 use actix::*;
 use std::{marker::PhantomData, sync::Arc};
 
-use crate::{Executable, JobStatus};
+use crate::{Error, Executable, JobStatus};
 
 #[derive(Clone, Default)]
 pub struct PluginCenter {
@@ -13,11 +13,11 @@ pub struct PluginCenter {
 }
 
 impl PluginCenter {
-    pub async fn register(plugin: JobPluginWrapper) {
+    pub async fn register(plugin: JobPluginWrapper) -> Result<(), Error> {
         Self::from_registry()
             .send(RegisterPlugin { plugin })
-            .await
-            .unwrap();
+            .await?;
+        Ok(())
     }
 
     pub(crate) fn change_status<M>(job_id: String, status: JobStatus)

@@ -4,6 +4,27 @@ use async_trait::async_trait;
 
 use crate::{Executable, Job, JobStatus};
 
+/// Implement Plugin to catch job hook event
+/// ```ignore
+/// pub struct MyHook;
+///
+/// #[async_trait]
+/// impl JobPlugin for MyHook {
+///     async fn change_status(&self, job_id: &str, status: JobStatus) {
+///         println!("Job {job_id} status: {status}");
+///     }
+///
+///     async fn before_run(&self, job_id: &str) {
+///         println!("Before Job {job_id} run");
+///     }
+///
+///     async fn after_run(&self, job_id: &str) {
+///         println!("After Job {job_id} run");
+///     }
+/// }
+///
+/// AJ::register_plugin(MyHook);
+/// ```
 #[async_trait]
 pub trait JobPlugin {
     // Status Change
@@ -22,6 +43,14 @@ pub struct JobPluginWrapper {
 }
 
 impl JobPluginWrapper {
+    pub(crate) fn new(
+        plugin: impl JobPlugin + Send + Sync + 'static,
+        job_type_ids: Vec<TypeId>,
+    ) -> Self {
+        let hook = Box::new(plugin);
+        Self { hook, job_type_ids }
+    }
+
     pub(crate) async fn change_status<M: Executable + Clone + 'static>(
         &self,
         job_id: &str,
