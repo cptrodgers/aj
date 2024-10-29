@@ -9,11 +9,11 @@ use crate::{Executable, JobStatus};
 
 #[derive(Clone, Default)]
 pub struct PluginCenter {
-    plugins: Vec<Arc<JobPlugin>>,
+    plugins: Vec<Arc<JobPluginWrapper>>,
 }
 
 impl PluginCenter {
-    pub async fn register(plugin: JobPlugin) {
+    pub async fn register(plugin: JobPluginWrapper) {
         Self::from_registry()
             .send(RegisterPlugin { plugin })
             .await
@@ -67,7 +67,7 @@ impl Supervised for PluginCenter {}
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct RegisterPlugin {
-    pub plugin: JobPlugin,
+    pub plugin: JobPluginWrapper,
 }
 
 impl Handler<RegisterPlugin> for PluginCenter {

@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use crate::{Executable, Job, JobStatus};
 
 #[async_trait]
-pub trait JobHook {
+pub trait JobPlugin {
     // Status Change
     async fn change_status(&self, _job_id: &str, _status: JobStatus) {}
 
@@ -16,12 +16,12 @@ pub trait JobHook {
     async fn after_run(&self, _job_id: &str) {}
 }
 
-pub struct JobPlugin {
-    hook: Box<dyn JobHook + Send + Sync + 'static>,
+pub struct JobPluginWrapper {
+    hook: Box<dyn JobPlugin + Send + Sync + 'static>,
     job_type_ids: Vec<TypeId>,
 }
 
-impl JobPlugin {
+impl JobPluginWrapper {
     pub(crate) async fn change_status<M: Executable + Clone + 'static>(
         &self,
         job_id: &str,
