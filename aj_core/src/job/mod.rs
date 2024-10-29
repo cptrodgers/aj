@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::types::{upsert_to_storage, Backend};
 use crate::util::{get_now, get_now_as_ms};
-use crate::Error;
+use crate::{Error, PluginCenter};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Job<M: Executable + Clone> {
@@ -126,15 +126,23 @@ where
 
 impl<M> Job<M>
 where
-    M: Executable + Clone + Serialize + Sync + Send,
+    M: Executable + Clone + Serialize + Sync + Send + 'static,
 {
     pub(crate) async fn execute(&mut self) -> <M as Executable>::Output {
+        // Hook before
+        PluginCenter::before::<M>(self.id().to_string()).await;
+
         // Log Count
         self.context.run_count += 1;
 
         self.data.pre_execute(&self.context).await;
         let output = self.data.execute(&self.context).await;
-        self.data.post_execute(output, &self.context).await
+        let output = self.data.post_execute(output, &self.context).await;
+
+        // Hook after
+        PluginCenter::after::<M>(self.id().to_string()).await;
+
+        output
     }
 
     pub fn is_ready(&self) -> bool {
