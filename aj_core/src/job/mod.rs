@@ -236,35 +236,45 @@ where
         debug!("[Job] Enqueue {}", self.id());
         self.context.job_status = JobStatus::Queued;
         self.context.enqueue_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, self.id(), self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())?;
+        PluginCenter::change_status::<M>(self.id().to_string(), self.context.job_status);
+        Ok(())
     }
 
     pub fn process(&mut self, backend: &dyn Backend) -> Result<(), Error> {
         debug!("[Job] Run {}", self.id());
         self.context.job_status = JobStatus::Running;
         self.context.run_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, self.id(), self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())?;
+        PluginCenter::change_status::<M>(self.id().to_string(), self.context.job_status);
+        Ok(())
     }
 
     pub(crate) fn finish(&mut self, backend: &dyn Backend) -> Result<(), Error> {
         debug!("[Job] Finish {}", self.id());
         self.context.job_status = JobStatus::Finished;
         self.context.complete_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, self.id(), self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())?;
+        PluginCenter::change_status::<M>(self.id().to_string(), self.context.job_status);
+        Ok(())
     }
 
     pub(crate) fn cancel(&mut self, backend: &dyn Backend) -> Result<(), Error> {
         debug!("[Job] Cancel {}", self.id());
         self.context.job_status = JobStatus::Canceled;
         self.context.cancel_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, self.id(), self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())?;
+        PluginCenter::change_status::<M>(self.id().to_string(), self.context.job_status);
+        Ok(())
     }
 
     pub(crate) fn fail(&mut self, backend: &dyn Backend) -> Result<(), Error> {
         debug!("[Job] Failed {}", self.id());
         self.context.job_status = JobStatus::Failed;
         self.context.complete_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, self.id(), self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())?;
+        PluginCenter::change_status::<M>(self.id().to_string(), self.context.job_status);
+        Ok(())
     }
 }
 

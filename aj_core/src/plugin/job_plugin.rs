@@ -2,10 +2,13 @@ use std::any::TypeId;
 
 use async_trait::async_trait;
 
-use crate::{Executable, Job};
+use crate::{Executable, Job, JobStatus};
 
 #[async_trait]
 pub trait JobHook {
+    // Status Change
+    async fn change_status(&self, _job_id: &str, _status: JobStatus) {}
+
     // Run before queue start
     async fn before_run(&self, _job_id: &str) {}
 
@@ -19,17 +22,28 @@ pub struct JobPlugin {
 }
 
 impl JobPlugin {
+    pub(crate) async fn change_status<M: Executable + Clone + 'static>(
+        &self,
+        job_id: &str,
+        status: JobStatus,
+    ) {
+        let type_id = TypeId::of::<Job<M>>();
+        if self.should_run(type_id) {
+            self.hook.change_status(job_id, status).await;
+        }
+    }
+
     pub(crate) async fn before_run<M: Executable + Clone + 'static>(&self, job_id: &str) {
         let type_id = TypeId::of::<Job<M>>();
         if self.should_run(type_id) {
-            self.hook.before_run(&job_id).await;
+            self.hook.before_run(job_id).await;
         }
     }
 
     pub(crate) async fn after_run<M: Executable + Clone + 'static>(&self, job_id: &str) {
         let type_id = TypeId::of::<Job<M>>();
         if self.should_run(type_id) {
-            self.hook.after_run(&job_id).await;
+            self.hook.after_run(job_id).await;
         }
     }
 
