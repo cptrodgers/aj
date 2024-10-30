@@ -9,6 +9,7 @@ pub mod aj;
 pub mod backend;
 pub mod error;
 pub mod job;
+pub mod plugin;
 pub mod queue;
 pub mod util;
 
@@ -16,8 +17,8 @@ pub use aj::*;
 pub use backend::*;
 pub use error::*;
 pub use job::*;
+pub use plugin::*;
 pub use queue::*;
-use serde::{de::DeserializeOwned, Serialize};
 pub use util::*;
 
 // External libs.
@@ -26,6 +27,8 @@ pub use async_trait;
 pub use chrono;
 pub use cron;
 pub use serde;
+
+use serde::{de::DeserializeOwned, Serialize};
 
 impl<M> Job<M>
 where

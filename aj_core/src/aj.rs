@@ -14,7 +14,7 @@ use crate::queue::{cancel_job, enqueue_job, WorkQueue};
 use crate::types::Backend;
 use crate::{
     get_job, retry_job, update_work_queue_config, BackgroundJob, EnqueueConfig, Error, Executable,
-    JobContext, WorkQueueConfig,
+    JobContext, JobPlugin, JobPluginWrapper, PluginCenter, WorkQueueConfig,
 };
 
 lazy_static! {
@@ -249,6 +249,13 @@ impl AJ {
         } else {
             Err(Error::NoQueueRegister)
         }
+    }
+
+    pub async fn register_plugin(
+        plugin: impl JobPlugin + Send + Sync + 'static,
+    ) -> Result<(), Error> {
+        let wrapper = JobPluginWrapper::new(plugin, vec![]);
+        PluginCenter::register(wrapper).await
     }
 }
 

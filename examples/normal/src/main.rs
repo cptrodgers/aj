@@ -1,12 +1,14 @@
 pub mod cancel_job;
 pub mod cron_job;
 pub mod macro_job;
+pub mod plugin;
 pub mod print_job;
 pub mod retry_job;
 pub mod schedule_job;
 pub mod update_job;
 
 use aj::{main, redis::Redis, AJ};
+use plugin::SamplePlugin;
 
 #[allow(dead_code)]
 fn run_aj_redis_engine() {
@@ -17,6 +19,7 @@ fn run_aj_redis_engine() {
 async fn main() {
     // Run AJ engine with In Memory
     AJ::quick_start();
+    AJ::register_plugin(SamplePlugin).await.unwrap();
     // Or, run AJ engine with redis, un comment code below to test
     // run_aj_redis_engine();
 

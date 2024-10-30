@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::types::{upsert_to_storage, Backend};
 use crate::util::{get_now, get_now_as_ms};
-use crate::Error;
+use crate::{Error, PluginCenter};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Job<M: Executable + Clone> {
@@ -126,15 +126,23 @@ where
 
 impl<M> Job<M>
 where
-    M: Executable + Clone + Serialize + Sync + Send,
+    M: Executable + Clone + Serialize + Sync + Send + 'static,
 {
     pub(crate) async fn execute(&mut self) -> <M as Executable>::Output {
+        // Hook before
+        PluginCenter::before::<M>(self.id().to_string()).await;
+
         // Log Count
         self.context.run_count += 1;
 
         self.data.pre_execute(&self.context).await;
         let output = self.data.execute(&self.context).await;
-        self.data.post_execute(output, &self.context).await
+        let output = self.data.post_execute(output, &self.context).await;
+
+        // Hook after
+        PluginCenter::after::<M>(self.id().to_string()).await;
+
+        output
     }
 
     pub fn is_ready(&self) -> bool {
@@ -228,35 +236,45 @@ where
         debug!("[Job] Enqueue {}", self.id());
         self.context.job_status = JobStatus::Queued;
         self.context.enqueue_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, self.id(), self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())?;
+        PluginCenter::change_status::<M>(self.id().to_string(), self.context.job_status);
+        Ok(())
     }
 
     pub fn process(&mut self, backend: &dyn Backend) -> Result<(), Error> {
         debug!("[Job] Run {}", self.id());
         self.context.job_status = JobStatus::Running;
         self.context.run_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, self.id(), self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())?;
+        PluginCenter::change_status::<M>(self.id().to_string(), self.context.job_status);
+        Ok(())
     }
 
     pub(crate) fn finish(&mut self, backend: &dyn Backend) -> Result<(), Error> {
         debug!("[Job] Finish {}", self.id());
         self.context.job_status = JobStatus::Finished;
         self.context.complete_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, self.id(), self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())?;
+        PluginCenter::change_status::<M>(self.id().to_string(), self.context.job_status);
+        Ok(())
     }
 
     pub(crate) fn cancel(&mut self, backend: &dyn Backend) -> Result<(), Error> {
         debug!("[Job] Cancel {}", self.id());
         self.context.job_status = JobStatus::Canceled;
         self.context.cancel_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, self.id(), self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())?;
+        PluginCenter::change_status::<M>(self.id().to_string(), self.context.job_status);
+        Ok(())
     }
 
     pub(crate) fn fail(&mut self, backend: &dyn Backend) -> Result<(), Error> {
         debug!("[Job] Failed {}", self.id());
         self.context.job_status = JobStatus::Failed;
         self.context.complete_at = Some(get_now_as_ms());
-        upsert_to_storage(backend, self.id(), self.clone())
+        upsert_to_storage(backend, self.id(), self.clone())?;
+        PluginCenter::change_status::<M>(self.id().to_string(), self.context.job_status);
+        Ok(())
     }
 }
 

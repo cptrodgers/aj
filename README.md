@@ -6,7 +6,7 @@ Aj is a simple, customize-able, and feature-rich background job processing libra
 ## Install
 
 ```toml
-aj = "0.6.3"
+aj = "0.6.7"
 serde = { version = "1.0.64", features = ["derive"] } # Serialize and deserialize the job
 actix-rt = "2.2" # Actor model runtime engine
 ```
