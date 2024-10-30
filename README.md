@@ -1,33 +1,30 @@
 # aj
 ![ci status](https://github.com/cptrodgers/aj/actions/workflows/test-and-build.yml/badge.svg)
 
-Aj is a simple, customize-able, and feature-rich background job processing library for Rust, backed by Actix (Actor Model).
+Aj is a simple, customizable, and feature-rich background job processing library for Rust. It can work with any runtime by running actix-rt in a new thread if it detects that an actix-rt runtime is not present.
+
+- [x] No Async Runtime.
+- [x] Actix rt
+- [x] Tokio ([Example](/examples/tokio/))
+- [x] Other async runtimes.
 
 ## Install
 
 ```toml
-aj = "0.6.7"
+aj = "0.7.0"
 serde = { version = "1.0.64", features = ["derive"] } # Serialize and deserialize the job
 actix-rt = "2.2" # Actor model runtime engine
 ```
 
 ## Features & Usage
 
-## Async Runtime
-
-- [x] No Async runtime.
-- [x] Actix rt
-- [x] [Tokio](/examples/tokio/)
-- [x] Other (smol, async-std). Not tested but it should work because we spawn a os thread to handle actix_rt outside current main thread.
-
 ### Start AJ engine
 
 ```rust
 // AJ will be backed by run in-memory backend
 AJ::quick_start();
-
 // Or, redis.
-// https://github.com/cptrodgers/aj/tree/master/examples/redis_backend
+// https://github.com/cptrodgers/aj/blob/master/examples/normal/src/main.rs#L14
 AJ::start(aj::Redis::new("redis://localhost:6379"));
 ```
 
@@ -37,13 +34,17 @@ We support 2 ways to define a job. Macro and structure.
 
 **#[job] macro**
 
-Use `#[job]` macro ([Full example](https://github.com/cptrodgers/aj/tree/master/examples/simple_job))
+Use `#[job]` macro ([Full example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/macro_job.rs))
 
 ```rust
-use aj::job;
-
 #[job]
 fn hello(name: String) {
+    println!("Hello {name}");
+}
+
+#[job]
+async fn async_hello(name: String) {
+    // We support async fn as well
     println!("Hello {name}");
 }
 
@@ -53,24 +54,6 @@ fn main() {
     hello::just_run("Rodgers".into());
     // Or waiting job completed
     hello::run("AJ".into()).await;
-}
-```
-
-We also support async
-
-```rust
-use aj::job;
-
-#[job]
-async fn async_hello(name: String) {
-    // We support async fn as well
-    println!("Hello {name}");
-}
-
-#[main]
-async fn main() {
-    // Start AJ engine
-    AJ::quick_start();
     // Fire and forget the job
     async_hello::just_run("Rodgers".into());
     // Or
@@ -78,9 +61,10 @@ async fn main() {
 }
 ```
 
-**Structure way**
+**Structure and Executable Trait**
 
-[Full example](https://github.com/cptrodgers/aj/tree/master/examples/update_job)
+You can declare a Background Job by use Struct and implement trait `Executable` for that struct.
+[Full example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/print_job.rs)
 
 ```rust
 #[derive(BackgroundJob, Serialize, Deserialize, Debug, Clone)]
@@ -103,9 +87,7 @@ async fn main() {
     AJ::quick_start();
 
     let job_id = Print { number: 1 }
-        .job_builder()
-        .build()
-        .unwrap()
+        .job()
         .run()
         .await
         .unwrap();
@@ -114,58 +96,47 @@ async fn main() {
 
 ### Scheduled Job
 
-[Example](https://github.com/cptrodgers/aj/blob/master/examples/cron_and_schedule/src/main.rs#L35)
+[Example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/schedule_job.rs)
 Given that we have `Print` job.
 
 ```rust
 // Delay 1 sec and run
 let _ = Print { number: 1 }
-    .job_builder()
+    .job()
     .delay(Duration::seconds(1))
-    .build()
-    .unwrap()
     .run()
     .await;
 
 // Schedule after 2 seconds
 let _ = Print { number: 2 }
-    .job_builder()
+    .job()
     .schedule_at(get_now() + Duration::seconds(3))
-    .build()
-    .unwrap()
     .run()
     .await;
 ```
 
 
 ### Cron Job
-[Example](https://github.com/cptrodgers/aj/blob/master/examples/cron_and_schedule/src/main.rs#L53)
+[Example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/cron_job.rs)
 
 ```rust
 // Cron, run this job every seconds
 let _ = Print { number: 3 }
-    .job_builder()
+    .job()
     .cron("* * * * * * *")
-    .build()
-    .unwrap()
     .run()
     .await;
 ```
 
 ### Update Job
 
-[Example](https://github.com/cptrodgers/aj/blob/master/examples/update_job/src/main.rs#L44)
-
-
-Update Job Data
+[Example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/update_job.rs)
 
 ```rust
 // Run cron job every secs
 let job_id = Print { number: 1 }
-    .job_builder()
+    .job()
     .cron("* * * * * * *")
-    .build()
-    .unwrap()
     .run()
     .await
     .unwrap();
@@ -190,7 +161,7 @@ AJ::update_job(
 
 ### Cancel Job
 
-[Example](https://github.com/cptrodgers/aj/blob/master/examples/cancel_job/src/main.rs#L43)
+[Example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/cancel_job.rs)
 
 ```rust
 let result = AJ::cancel_job::<Print>(&job_id).await;
@@ -205,7 +176,7 @@ let job = AJ::get_job::<Print>(&job_id).await;
 
 ### Retry
 
-[Example](https://github.com/cptrodgers/aj/tree/master/examples/retry)
+[Example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/retry_job.rs)
 
 #### Auto Retry
 
@@ -235,14 +206,12 @@ impl Executable for Print {
 ```rust
 let max_retries = 3;
 let job = Print { number: 1 }
-    .job_builder()
+    .job()
     // Try to retry 3 times, retry after failed job 1 sec.
     .retry(Retry::new_interval_retry(
         Some(max_retries),
         chrono::Duration::seconds(1),
-    ))
-    .build()
-    .unwrap();
+    ));
 let _ = job.run().await;
 ```
 
@@ -250,14 +219,12 @@ let _ = job.run().await;
 
 ```rust
 let job = Print { number: 3 }
-    .job_builder()
+    .job()
     .retry(Retry::new_exponential_backoff(
         Some(max_retries),
         // Initial Backoff value
         chrono::Duration::seconds(1),
-    ))
-    .build()
-    .unwrap();
+    ));
 let _ = job.run().await.unwrap();
 ```
 
@@ -305,13 +272,39 @@ AJ::update_work_queue(aj::queue:WorkQueueConfig {
 }).await;
 ```
 
-### Distributed Mode
-
-In Roadmap
-
 ### Plugins / Extensions
 
-With plugin, you can write hook functions (before job run and after job run).
+[Example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/plugin.rs)
+
+```rust
+use aj::{async_trait, job::JobStatus, JobPlugin};
+
+pub struct SamplePlugin;
+
+#[async_trait]
+impl JobPlugin for SamplePlugin {
+    async fn change_status(&self, job_id: &str, job_status: JobStatus) {
+        println!("Hello, Job {job_id} change status to {job_status:?}");
+    }
+
+    async fn before_run(&self, job_id: &str) {
+        println!("Before job {job_id} run");
+    }
+
+    async fn after_run(&self, job_id: &str) {
+        println!("After job {job_id} run");
+    }
+}
+
+#[aj::main]
+async fn main() {
+    AJ::register_plugin(SamplePlugin).await.unwrap();
+}
+```
+
+### Distributed Mode (Run multiple AJ in many rust applications)
+
+In Roadmap
 
 ### DAG
 

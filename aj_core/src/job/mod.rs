@@ -278,6 +278,11 @@ where
     }
 }
 
+pub trait BackgroundJob: Executable + Clone {
+    fn queue_name() -> &'static str;
+    fn job(self) -> Job<Self>;
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -376,9 +381,4 @@ mod tests {
             assert!(should_retry_at.is_some());
         }
     }
-}
-
-pub trait BackgroundJob: Executable + Clone {
-    fn queue_name() -> &'static str;
-    fn job(self) -> Job<Self>;
 }
