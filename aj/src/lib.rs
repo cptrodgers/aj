@@ -40,6 +40,7 @@ pub use aj_core::backend;
 pub use aj_core::backend::mem;
 pub use aj_core::backend::redis;
 pub use aj_core::job;
+pub use aj_core::plugin::*;
 pub use aj_core::queue;
 pub use aj_core::retry;
 pub use aj_core::{BackgroundJob, Error, Executable, Job, JobContext, WorkQueue, AJ};
