@@ -21,11 +21,20 @@ actix-rt = "2.2" # Actor model runtime engine
 ### Start AJ engine
 
 ```rust
-// AJ will be backed by run in-memory backend
+// AJ will be backed by run in-memory backend.
+// If you wish to use redis as the backend for aj.
+// AJ::start(aj::Redis::new("redis://localhost:6379"));
 AJ::quick_start();
-// Or, redis.
-// https://github.com/cptrodgers/aj/blob/master/examples/normal/src/main.rs#L14
-AJ::start(aj::Redis::new("redis://localhost:6379"));
+
+/// Declare job
+#[job]
+async fn async_hello(name: String) {
+    // We support async fn as well
+    println!("Hello {name}");
+}
+
+// Run it
+async_hello::just_run("AJ".into());
 ```
 
 ### Background Job
