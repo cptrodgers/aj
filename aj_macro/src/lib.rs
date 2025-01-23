@@ -113,6 +113,7 @@ pub fn job(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
         pub mod #fn_name {
             use aj::{BackgroundJob, JobContext};
+            use super::*;
 
             // Define a new trait
             #[derive(

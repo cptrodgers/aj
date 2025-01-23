@@ -1,6 +1,6 @@
 use aj::{export::core::actix_rt::time::sleep, BackgroundJob, AJ};
 
-use crate::print_job::Print;
+use crate::default_print_job::Print;
 
 pub async fn run() {
     // Cron

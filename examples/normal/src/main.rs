@@ -1,8 +1,8 @@
 pub mod cancel_job;
 pub mod cron_job;
+pub mod default_print_job;
 pub mod macro_job;
 pub mod plugin;
-pub mod print_job;
 pub mod retry_job;
 pub mod schedule_job;
 pub mod update_job;

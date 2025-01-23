@@ -2,7 +2,7 @@ use actix_rt::time::sleep;
 use aj::BackgroundJob;
 use chrono::Duration;
 
-use crate::print_job::{get_now, Print};
+use crate::default_print_job::{get_now, Print};
 
 pub async fn run() {
     // Delay 1 sec and run

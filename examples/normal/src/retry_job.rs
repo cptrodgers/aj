@@ -4,7 +4,7 @@ use aj::{
     BackgroundJob, AJ,
 };
 
-use crate::print_job::Print;
+use crate::default_print_job::Print;
 
 pub async fn run() {
     let max_retries = 3;
