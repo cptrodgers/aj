@@ -1,2 +1,3 @@
 [workspace]
 members = ["aj", "aj_core", "aj_macro", "examples/*"]
+resolver = "2"
