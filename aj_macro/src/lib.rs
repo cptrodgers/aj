@@ -116,6 +116,7 @@ pub fn job(_attr: TokenStream, item: TokenStream) -> TokenStream {
             use super::*;
 
             // Define a new trait
+            // Require Debug and Clone
             #[derive(
                 Debug,
                 Clone,
