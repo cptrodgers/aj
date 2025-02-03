@@ -1,12 +1,8 @@
 # aj
 ![ci status](https://github.com/cptrodgers/aj/actions/workflows/test-and-build.yml/badge.svg)
 
-Aj is a simple, customizable, and feature-rich background job processing library for Rust. It can work with any runtime by running actix-rt in a new thread if it detects that an actix-rt runtime is not present.
-
-- [x] No Async Runtime.
-- [x] Actix rt
-- [x] Tokio ([Example](/examples/tokio/))
-- [x] Other async runtimes.
+Aj is a simple, customizable, and feature-rich background job processing library for Rust.
+It can work with any runtime by running new actix-rt in a separated thread if it detects that an actix-rt runtime is not present.
 
 ## Install
 
@@ -16,61 +12,64 @@ serde = { version = "1.0.64", features = ["derive"] } # Serialize and deserializ
 actix-rt = "2.2" # Actor model runtime engine
 ```
 
-## Features & Usage
-
-### Start AJ engine
+## Quick start
 
 ```rust
-// AJ will be backed by run in-memory backend.
-// If you wish to use redis as the backend for aj.
-// AJ::start(aj::Redis::new("redis://localhost:6379"));
-AJ::quick_start();
+use aj::job;
 
-/// Declare job
 #[job]
-async fn async_hello(name: String) {
-    // We support async fn as well
+async fn hello(name: String) {
     println!("Hello {name}");
 }
 
-// Run it
-async_hello::just_run("AJ".into());
+#[aj::main]
+async fn main() {
+    // AJ will be backed by run in-memory backend.
+    // If you wish to use redis as the backend for aj.
+    // AJ::start(aj::Redis::new("redis://localhost:6379"));
+    AJ::quick_start();
+    // Fire and forget the job. No gruantee job is queued
+    hello::just_run("Rodgers".into());
+    // Or waiting job is queued
+    hello::run("AJ".into()).await;
+
+    // Sleep 1 sec to view the result from job (if you want to wait the job run)
+    // sleep(Duration::from_secs(1)).await;
+}
 ```
 
-### Background Job
+## Features & Usage
+
+- [Create Job](#declare-a-job)
+- [Schedule Job](#scheduled-job)
+- [Cron Job](#cron-job)
+- [Update Job](#update-job)
+- [Cancel Job](#cancel-job)
+- [Get Job](#get-job)
+- [Retry](#retry)
+  - Interval Retry
+  - Backoff exponential retry
+- [Plugin](#plugin)
+- [Config Queue](#config)
+- Custom Backend
+- DAG (Coming soon)
+- Distributed Mode (Coming soon)
+- Monitoring & Web Admin UI
+
+### Declare a Job
 
 We support 2 ways to define a job. Macro and structure.
 
-**#[job] macro**
-
-Use `#[job]` macro ([Full example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/macro_job.rs))
+** Use macro #[job] ([Full example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/macro_job.rs)) macro **
 
 ```rust
 #[job]
-fn hello(name: String) {
+async fn hello(name: String) {
     println!("Hello {name}");
-}
-
-#[job]
-async fn async_hello(name: String) {
-    // We support async fn as well
-    println!("Hello {name}");
-}
-
-fn main() {
-    AJ::quick_start();
-    // Fire and forget the job
-    hello::just_run("Rodgers".into());
-    // Or waiting job completed
-    hello::run("AJ".into()).await;
-    // Fire and forget the job
-    async_hello::just_run("Rodgers".into());
-    // Or
-    let _ = async_hello::run("Hien".into()).await;
 }
 ```
 
-**Structure and Executable Trait**
+**Structure**
 
 You can declare a Background Job by use Struct and implement trait `Executable` for that struct.
 [Full example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/print_job.rs)
@@ -250,38 +249,7 @@ This is useful for applications that have a UI allowing users to retry the job.
 AJ::retry_job::<Print>(&job_id).await.unwrap();
 ```
 
-### Custom Backend (Both Broker and Storage)
-If you wish to customize the backend of AJ, such as using Postgres, MySQL, Kafka, RabbitMQ, etc.,
-you can implement the `Backend` trait and then use it in AJ.
-
-[In Memory Example](https://github.com/cptrodgers/aj/blob/master/aj_core/src/backend/mem.rs)
-
-```rust
-pub YourBackend {
-...
-}
-
-impl Backend for YourBackend {
-    ...
-}
-
-// Use it, just replace Redis by your backend.
-AJ::start(YourBackend::new());
-```
-
-
-### Config Processing Speed
-
-```rust
-AJ::update_work_queue(aj::queue:WorkQueueConfig {
-    // 50 ms will fetch job again
-    process_tick_duration: choro::Duration::milliseconds(50),
-    // Only process 10 jobs at time
-    max_processing_jobs: 10,
-}).await;
-```
-
-### Plugins / Extensions
+### Plugin
 
 [Example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/plugin.rs)
 
@@ -310,6 +278,37 @@ async fn main() {
     AJ::register_plugin(SamplePlugin).await.unwrap();
 }
 ```
+
+### Config
+
+```rust
+AJ::update_work_queue(aj::queue:WorkQueueConfig {
+    // 50 ms will fetch job again
+    process_tick_duration: choro::Duration::milliseconds(50),
+    // Only process 10 jobs at time
+    max_processing_jobs: 10,
+}).await;
+```
+
+### Custom Backend (Both Broker and Storage)
+If you wish to customize the backend of AJ, such as using Postgres, MySQL, Kafka, RabbitMQ, etc.,
+you can implement the `Backend` trait and then use it in AJ.
+
+[In Memory Example](https://github.com/cptrodgers/aj/blob/master/aj_core/src/backend/mem.rs)
+
+```rust
+pub YourBackend {
+...
+}
+
+impl Backend for YourBackend {
+    ...
+}
+
+// Use it, just replace Redis by your backend.
+AJ::start(YourBackend::new());
+```
+
 
 ### Distributed Mode (Run multiple AJ in many rust applications)
 

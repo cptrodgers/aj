@@ -23,8 +23,8 @@ impl Executable for Print {
         Err(())
     }
 
-    // Determine where your job is failed.
-    // For example, check job output is return Err type
+    // Optional: Determine where your job is failed.
+    // This function will be useful to control retry logic.
     async fn is_failed_output(&self, job_output: &Self::Output) -> bool {
         job_output.is_err()
     }

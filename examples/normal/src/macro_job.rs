@@ -21,6 +21,6 @@ pub async fn run() {
     // Or fire and forget it
     async_hello::just_run("AJ".into());
 
-    // Sleep 1 ms to view the result from job
+    // Sleep 1 sec to view the result from job
     sleep(Duration::from_secs(1)).await;
 }
