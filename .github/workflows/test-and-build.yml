@@ -2,23 +2,38 @@ name: Build
 
 on:
   push:
-    branches: [ "master" ]
+    branches: ["master"]
   pull_request:
-    branches: [ "master" ]
+    branches: ["master"]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Clippy
-      run: cargo clippy --all-features
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - uses: actions/checkout@v3
+      - name: Verify Redis is up
+        run: redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping
+      - name: Clippy
+        run: cargo clippy --all-features
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --verbose

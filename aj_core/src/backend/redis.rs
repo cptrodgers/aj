@@ -172,7 +172,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_queue_push() {
         let queue_name = Uuid::new_v4().to_string();
         let backend = init_redis();
@@ -197,7 +196,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_queue_move() {
         let backend = init_redis();
 
@@ -230,7 +228,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_queue_remove() {
         let queue_name = Uuid::new_v4().to_string();
         let backend = init_redis();
@@ -253,7 +250,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_queue_get() {
         let queue_name = Uuid::new_v4().to_string();
         let backend = init_redis();
@@ -279,7 +275,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_queue_count() {
         let queue_name = Uuid::new_v4().to_string();
         let backend = init_redis();
@@ -298,7 +293,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_storage_upsert_and_get() {
         let backend = init_redis();
         let hash_name = "test_hash";
@@ -315,7 +309,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_storage_get_non_existent_key() {
         let backend = init_redis();
 
