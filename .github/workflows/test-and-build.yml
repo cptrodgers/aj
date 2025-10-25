@@ -29,8 +29,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-      - name: Verify Redis is up
-        run: redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping
       - name: Clippy
         run: cargo clippy --all-features
       - name: Build
