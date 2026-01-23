@@ -7,7 +7,7 @@ It can work with any runtime by running new actix-rt in a separated thread if it
 ## Install
 
 ```toml
-aj = "0.7.1"
+aj = "0.7.2"
 serde = { version = "1.0.64", features = ["derive"] } # Serialize and deserialize the job
 actix-rt = "2.2" # Actor model runtime engine
 ```
@@ -17,7 +17,7 @@ actix-rt = "2.2" # Actor model runtime engine
 By default, AJ uses an in-memory backend. To use Redis as the backend, enable the `redis` feature:
 
 ```toml
-aj = { version = "0.7.1", features = ["redis"] }
+aj = { version = "0.7.2", features = ["redis"] }
 ```
 
 ## Quick start
@@ -324,7 +324,7 @@ AJ::start(InMemory::default());
 For production use with persistence and multi-instance support, enable the `redis` feature:
 
 ```toml
-aj = { version = "0.7.1", features = ["redis"] }
+aj = { version = "0.7.2", features = ["redis"] }
 ```
 
 ```rust
