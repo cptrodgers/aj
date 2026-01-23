@@ -1,14 +1,17 @@
 use actix::MailboxError;
+#[cfg(feature = "redis")]
 use redis::RedisError;
 
 #[derive(Debug)]
 pub enum Error {
+    #[cfg(feature = "redis")]
     Redis(RedisError),
     CronError(cron::error::Error),
     MailboxError(MailboxError),
     NoQueueRegister,
 }
 
+#[cfg(feature = "redis")]
 impl From<RedisError> for Error {
     fn from(value: RedisError) -> Self {
         Self::Redis(value)
