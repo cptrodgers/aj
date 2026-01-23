@@ -7,9 +7,17 @@ It can work with any runtime by running new actix-rt in a separated thread if it
 ## Install
 
 ```toml
-aj = "0.7.0"
+aj = "0.7.1"
 serde = { version = "1.0.64", features = ["derive"] } # Serialize and deserialize the job
 actix-rt = "2.2" # Actor model runtime engine
+```
+
+### Enable Redis Backend
+
+By default, AJ uses an in-memory backend. To use Redis as the backend, enable the `redis` feature:
+
+```toml
+aj = { version = "0.7.1", features = ["redis"] }
 ```
 
 ## Quick start
@@ -24,11 +32,14 @@ async fn hello(name: String) {
 
 #[aj::main]
 async fn main() {
-    // AJ will be backed by run in-memory backend.
-    // If you wish to use redis as the backend for aj.
-    // AJ::start(aj::Redis::new("redis://localhost:6379"));
+    // Start AJ with in-memory backend (default, no feature flag needed)
     AJ::quick_start();
-    // Fire and forget the job. No gruantee job is queued
+
+    // Or start with Redis backend (requires `redis` feature)
+    // use aj::redis::Redis;
+    // AJ::start(Redis::new("redis://localhost:6379"));
+
+    // Fire and forget the job. No guarantee job is queued
     hello::just_run("Rodgers".into());
     // Or waiting job is queued
     hello::run("AJ".into()).await;
@@ -290,22 +301,55 @@ AJ::update_work_queue(aj::queue:WorkQueueConfig {
 }).await;
 ```
 
-### Custom Backend (Both Broker and Storage)
+### Backends
+
+AJ supports multiple backends for job storage and processing:
+
+#### In-Memory Backend (Default)
+
+The in-memory backend is included by default and requires no feature flags. It's suitable for development and single-instance deployments.
+
+```rust
+use aj::mem::InMemory;
+
+// Quick start uses in-memory backend
+AJ::quick_start();
+
+// Or explicitly
+AJ::start(InMemory::default());
+```
+
+#### Redis Backend (Optional)
+
+For production use with persistence and multi-instance support, enable the `redis` feature:
+
+```toml
+aj = { version = "0.7.1", features = ["redis"] }
+```
+
+```rust
+use aj::redis::Redis;
+
+AJ::start(Redis::new("redis://localhost:6379"));
+```
+
+#### Custom Backend
+
 If you wish to customize the backend of AJ, such as using Postgres, MySQL, Kafka, RabbitMQ, etc.,
 you can implement the `Backend` trait and then use it in AJ.
 
 [In Memory Example](https://github.com/cptrodgers/aj/blob/master/aj_core/src/backend/mem.rs)
 
 ```rust
-pub YourBackend {
-...
+pub struct YourBackend {
+    // ...
 }
 
 impl Backend for YourBackend {
-    ...
+    // ...
 }
 
-// Use it, just replace Redis by your backend.
+// Use your custom backend
 AJ::start(YourBackend::new());
 ```
 

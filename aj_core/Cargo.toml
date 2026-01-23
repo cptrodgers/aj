@@ -14,9 +14,13 @@ include = ["**/*.rs", "Cargo.toml"]
 name = "aj_core"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = []
+redis = ["dep:redis"]
+
 [dependencies]
 uuid = { version = "1.8", features = ["serde", "v4"] }
-redis = "0.25.3"
+redis = { version = "0.25.3", optional = true }
 cron = "0.12.0"
 actix = "0.13.0"
 actix-rt = "2.2"

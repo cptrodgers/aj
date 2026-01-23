@@ -13,6 +13,9 @@ include = ["**/*.rs", "Cargo.toml"]
 [lib]
 name = "aj"
 
+[features]
+default = []
+redis = ["aj_core/redis"]
 
 [dependencies]
 aj_macro = { version = "=0.7.1", path = "../aj_macro" }

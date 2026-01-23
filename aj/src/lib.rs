@@ -1,5 +1,7 @@
 //! Aj is a simple, flexible, and feature-rich background job processing library for Rust, backed by Actix (Actor Model).
 //!
+//! # Quick Start
+//!
 //! ```rust
 //! use std::time::Duration;
 //!
@@ -19,7 +21,7 @@
 //!
 //! #[main]
 //! async fn main() {
-//!    // Start AJ engine
+//!    // Start AJ engine with in-memory backend
 //!    AJ::quick_start();
 //!
 //!    // Wait the job is registered in AJ
@@ -33,11 +35,32 @@
 //! }
 //! ```
 //!
+//! # Feature Flags
+//!
+//! - `redis` - Enables Redis backend support for production use with persistence
+//!
+//! ```toml
+//! # Enable Redis backend
+//! aj = { version = "0.7.1", features = ["redis"] }
+//! ```
+//!
+//! # Using Redis Backend
+//!
+//! When the `redis` feature is enabled:
+//!
+//! ```ignore
+//! use aj::redis::Redis;
+//! use aj::AJ;
+//!
+//! AJ::start(Redis::new("redis://localhost:6379"));
+//! ```
+//!
 //! [More examples](https://github.com/cptrodgers/aj/tree/master/aj/examples)
 //! [Features](https://github.com/cptrodgers/aj/?tab=readme-ov-file#features)
 //!
 pub use aj_core::backend;
 pub use aj_core::backend::mem;
+#[cfg(feature = "redis")]
 pub use aj_core::backend::redis;
 pub use aj_core::job;
 pub use aj_core::plugin::*;
