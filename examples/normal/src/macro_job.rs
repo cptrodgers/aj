@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use aj::export::core::actix_rt::time::sleep;
 use aj::job;
 
 #[job]
@@ -22,5 +21,5 @@ pub async fn run() {
     async_hello::just_run("AJ".into());
 
     // Sleep 1 sec to view the result from job
-    sleep(Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
 }

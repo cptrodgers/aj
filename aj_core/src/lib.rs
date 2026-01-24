@@ -22,7 +22,6 @@ pub use queue::*;
 pub use util::*;
 
 // External libs.
-pub use actix_rt;
 pub use async_trait;
 pub use chrono;
 pub use cron;
@@ -49,10 +48,12 @@ where
 
     /// It will just send message to WorkQueue and no gurantee job is inserted to backend
     pub fn just_run(self) {
-        if let Some(aj_addr) = get_aj_address() {
-            aj_addr.do_send(JustRunJob {
-                job: self,
-                queue_name: M::queue_name().to_string(),
+        if let Some(aj_ref) = get_aj_address() {
+            let job = self;
+            let queue_name = M::queue_name().to_string();
+            // Fire and forget - spawn a task to send the message
+            tokio::spawn(async move {
+                let _ = aj_ref.tell(JustRunJob { job, queue_name }).await;
             });
         }
     }

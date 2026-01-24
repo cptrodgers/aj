@@ -1,4 +1,3 @@
-use actix_rt::time::sleep;
 use aj::{
     job::{JobStatus, Retry},
     BackgroundJob, AJ,
@@ -15,7 +14,7 @@ pub async fn run() {
     ));
     let job_id = job.run().await.unwrap();
 
-    sleep(std::time::Duration::from_secs(5)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     // Get Job
     let job = AJ::get_job::<Print>(&job_id).await.unwrap();
@@ -25,7 +24,7 @@ pub async fn run() {
     // Manual Retry
     println!("Manual Retry");
     AJ::retry_job::<Print>(&job_id).await.unwrap();
-    sleep(std::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     // Exponential Retry 3 times -> Maximum do the job 4 times.
     let job = Print { number: 3 }
@@ -36,5 +35,5 @@ pub async fn run() {
         ));
     let _ = job.run().await.unwrap();
     // Run at 0s, Retry at after first job 1s, after second job 2s,.... 4s
-    sleep(std::time::Duration::from_secs(5)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 }

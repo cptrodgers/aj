@@ -1,10 +1,7 @@
 use aj::{
     async_trait,
-    export::core::{
-        actix_rt::time::sleep,
-        serde::{Deserialize, Serialize},
-    },
-    main, BackgroundJob, Executable, JobContext, AJ,
+    export::core::serde::{Deserialize, Serialize},
+    BackgroundJob, Executable, JobContext, AJ,
 };
 use aj_core::get_now_as_secs;
 
@@ -20,12 +17,12 @@ impl Executable for AJob {
     }
 }
 
-#[main]
+#[tokio::main]
 async fn main() {
     AJ::quick_start();
 
     println!("Start time {}", get_now_as_secs());
     let _ = AJob.job().cron("* * * * * * *").run().await;
 
-    sleep(std::time::Duration::from_secs(5)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 }

@@ -38,7 +38,7 @@ pub trait JobPlugin {
 }
 
 pub struct JobPluginWrapper {
-    hook: Box<dyn JobPlugin + Send + Sync + 'static>,
+    pub(crate) hook: Box<dyn JobPlugin + Send + Sync + 'static>,
     job_type_ids: Vec<TypeId>,
 }
 
@@ -150,7 +150,7 @@ mod tests {
         assert_eq!(plugin_2.should_run(TypeId::of::<B>()), false);
     }
 
-    #[actix_rt::test]
+    #[tokio::test]
     async fn test_change_status_hook() {
         // Plugin apply for all Job
         let plugin = JobPluginWrapper::new(SimplePlugin, vec![]);
@@ -161,7 +161,7 @@ mod tests {
         assert_eq!(*JOB_ID.lock().unwrap(), "job_status");
     }
 
-    #[actix_rt::test]
+    #[tokio::test]
     async fn test_change_before_run() {
         // Plugin apply for all Job
         let plugin = JobPluginWrapper::new(SimplePlugin, vec![]);
@@ -172,7 +172,7 @@ mod tests {
         assert_eq!(*JOB_ID.lock().unwrap(), "job_before");
     }
 
-    #[actix_rt::test]
+    #[tokio::test]
     async fn test_change_after_run() {
         // Plugin apply for all Job
         let plugin = JobPluginWrapper::new(SimplePlugin, vec![]);

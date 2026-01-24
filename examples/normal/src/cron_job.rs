@@ -1,4 +1,3 @@
-use actix_rt::time::sleep;
 use aj::BackgroundJob;
 
 use crate::default_print_job::Print;
@@ -7,5 +6,5 @@ pub async fn run() {
     // Cron
     let _ = Print { number: 3 }.job().cron("* * * * * * *").run().await;
 
-    sleep(std::time::Duration::from_secs(3)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 }

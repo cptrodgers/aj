@@ -2,11 +2,8 @@ use std::time::Duration;
 
 use aj::{
     async_trait,
-    export::core::{
-        actix_rt::time::sleep,
-        serde::{Deserialize, Serialize},
-    },
-    main, BackgroundJob, Executable, JobContext, AJ,
+    export::core::serde::{Deserialize, Serialize},
+    BackgroundJob, Executable, JobContext, AJ,
 };
 use aj_core::retry::Retry;
 
@@ -31,7 +28,7 @@ impl Executable for Print {
     }
 }
 
-#[main]
+#[tokio::main]
 async fn main() {
     AJ::quick_start();
 
@@ -43,5 +40,5 @@ async fn main() {
     ));
     let _ = job.run().await;
 
-    sleep(Duration::from_secs(5)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
 }

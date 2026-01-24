@@ -3,7 +3,7 @@ name = "aj"
 version = "0.7.2"
 edition = "2021"
 authors = ["cptrodgers <me@cptrodgers.com>"]
-description = "Background Job based on Actix"
+description = "Background Job Library for Rust"
 readme = "README.md"
 repository = "https://github.com/cptrodgers/aj"
 license = "MIT OR Apache-2.0"
@@ -21,5 +21,5 @@ redis = ["aj_core/redis"]
 aj_macro = { version = "=0.7.2", path = "../aj_macro" }
 aj_core = { version = "=0.7.2", path = "../aj_core" }
 serde = { version = "1.0.64", features = ["derive"] }
-actix-rt = "2.2"
+tokio = { version = "1.23.1", features = ["rt", "macros"] }
 lazy_static = { version = "1.4.0" }
