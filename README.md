@@ -2,14 +2,14 @@
 ![ci status](https://github.com/cptrodgers/aj/actions/workflows/test-and-build.yml/badge.svg)
 
 AJ is a simple, customizable, and feature-rich background job processing library for Rust.
-It can work with any runtime by running a new actix-rt in a separate thread if it detects that an actix-rt runtime is not present.
+It runs on pure Tokio runtime using the Kameo actor framework.
 
 ## Install
 
 ```toml
 aj = "0.7.2"
 serde = { version = "1.0.64", features = ["derive"] } # Serialize and deserialize the job
-actix-rt = "2.2" # Actor model runtime engine
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] } # Async runtime
 ```
 
 ### Enable Redis Backend
@@ -30,7 +30,7 @@ async fn hello(name: String) {
     println!("Hello {name}");
 }
 
-#[aj::main]
+#[tokio::main]
 async fn main() {
     // Start AJ with in-memory backend (default, no feature flag needed)
     AJ::quick_start();
@@ -45,7 +45,7 @@ async fn main() {
     hello::run("AJ".into()).await;
 
     // Sleep 1 sec to view the result from the job (if you want to wait for the job to run)
-    // sleep(Duration::from_secs(1)).await;
+    // tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 }
 ```
 
@@ -100,7 +100,7 @@ impl Executable for Print {
     }
 }
 
-#[main]
+#[tokio::main]
 async fn main() {
     // Start AJ engine
     AJ::quick_start();
@@ -285,7 +285,7 @@ impl JobPlugin for SamplePlugin {
     }
 }
 
-#[aj::main]
+#[tokio::main]
 async fn main() {
     AJ::register_plugin(SamplePlugin).await.unwrap();
 }
