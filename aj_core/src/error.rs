@@ -1,4 +1,3 @@
-use actix::MailboxError;
 #[cfg(feature = "redis")]
 use redis::RedisError;
 
@@ -7,7 +6,7 @@ pub enum Error {
     #[cfg(feature = "redis")]
     Redis(RedisError),
     CronError(cron::error::Error),
-    MailboxError(MailboxError),
+    ActorError(String),
     NoQueueRegister,
     SerializeError,
 }
@@ -25,8 +24,8 @@ impl From<cron::error::Error> for Error {
     }
 }
 
-impl From<MailboxError> for Error {
-    fn from(value: MailboxError) -> Self {
-        Self::MailboxError(value)
+impl<M, E: std::fmt::Debug> From<kameo::error::SendError<M, E>> for Error {
+    fn from(value: kameo::error::SendError<M, E>) -> Self {
+        Self::ActorError(format!("{:?}", value))
     }
 }

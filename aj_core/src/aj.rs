@@ -1,11 +1,11 @@
-use actix::*;
 use dashmap::DashMap;
-use fut::wrap_future;
+use kameo::actor::ActorRef;
+use kameo::message::{Context, Message};
+use kameo::Actor;
 use lazy_static::lazy_static;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::any::{Any, TypeId};
-use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 
 use crate::job::Job;
@@ -22,7 +22,12 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref AJ_ADDR: Arc<RwLock<Option<Addr<AJ>>>> = Arc::new(RwLock::new(None));
+    static ref AJ_BACKEND: Arc<RwLock<Option<Arc<dyn Backend + Send + Sync + 'static>>>> =
+        Arc::new(RwLock::new(None));
+}
+
+lazy_static! {
+    static ref AJ_ADDR: Arc<RwLock<Option<ActorRef<AJ>>>> = Arc::new(RwLock::new(None));
 }
 
 #[derive(Debug, Default)]
@@ -31,14 +36,21 @@ pub struct Registry {
     registry_by_name: DashMap<String, Box<dyn Any + Send + Sync>>,
 }
 
-pub fn get_work_queue_address<M>() -> Option<Addr<WorkQueue<M>>>
+fn get_backend() -> Option<Arc<dyn Backend + Send + Sync + 'static>> {
+    if let Ok(backend) = AJ_BACKEND.try_read() {
+        backend.clone()
+    } else {
+        None
+    }
+}
+
+pub fn get_work_queue_address<M>() -> Option<ActorRef<WorkQueue<M>>>
 where
     M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-    WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
 {
     let type_id = TypeId::of::<M>();
     if let Some(queue_addr) = QUEUE_REGISTRY.registry.get(&type_id) {
-        if let Some(addr) = queue_addr.downcast_ref::<Addr<WorkQueue<M>>>() {
+        if let Some(addr) = queue_addr.downcast_ref::<ActorRef<WorkQueue<M>>>() {
             return Some(addr.clone());
         }
     }
@@ -46,7 +58,35 @@ where
     None
 }
 
-pub fn get_aj_address() -> Option<Addr<AJ>> {
+fn register_work_queue<M>(queue_name: &str) -> ActorRef<WorkQueue<M>>
+where
+    M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+{
+    let type_id = TypeId::of::<M>();
+    let registry = &QUEUE_REGISTRY;
+
+    // Check if already registered
+    if let Some(queue_addr) = registry.registry.get(&type_id) {
+        if let Some(addr) = queue_addr.downcast_ref::<ActorRef<WorkQueue<M>>>() {
+            return addr.clone();
+        }
+    }
+
+    let backend = get_backend().expect("AJ is not started, please start it via AJ::start");
+
+    // Start Queue actor
+    let queue_ref = WorkQueue::<M>::start_with_name(queue_name.into(), backend);
+    registry
+        .registry
+        .insert(type_id, Box::new(queue_ref.clone()));
+    registry
+        .registry_by_name
+        .insert(queue_name.into(), Box::new(queue_ref.clone()));
+
+    queue_ref
+}
+
+pub fn get_aj_address() -> Option<ActorRef<AJ>> {
     if let Ok(addr) = AJ_ADDR.try_read() {
         addr.clone()
     } else {
@@ -54,84 +94,35 @@ pub fn get_aj_address() -> Option<Addr<AJ>> {
     }
 }
 
-pub struct AJ {
-    backend: Arc<dyn Backend + Send + Sync + 'static>,
-}
-
-impl Actor for AJ {
-    type Context = Context<Self>;
-}
+#[derive(Actor)]
+pub struct AJ {}
 
 impl AJ {
-    // Will use memory as Backend for AJ
-    pub fn start(backend: impl Backend + Send + Sync + 'static) -> Addr<Self> {
+    /// Start AJ with a custom backend
+    pub fn start(backend: impl Backend + Send + Sync + 'static) -> ActorRef<Self> {
         if let Some(aj_addr) = get_aj_address() {
             warn!("AJ is running. Return current AJ");
             return aj_addr;
         }
 
-        match System::try_current() {
-            Some(_) => {
-                info!("Found Actix Runtime, re-use it!");
-                Self::register_addr(backend);
-            }
-            None => {
-                info!("No Actix Runtime, trying start new one in separated thread!");
-                std::thread::spawn(|| {
-                    // Start the Actix runtime within this new thread
-                    let _ = System::new();
-                    Self::register_addr(backend);
-                })
-                .join()
-                .expect("Failed to start thread");
-            }
+        // Store backend globally
+        if let Ok(ref mut backend_ref) = AJ_BACKEND.try_write() {
+            **backend_ref = Some(Arc::new(backend));
         }
 
-        get_aj_address().expect("AJ address must be registered!")
-    }
-
-    fn register_addr(backend: impl Backend + Send + Sync + 'static) -> Addr<Self> {
-        let arbiter: Arbiter = Arbiter::new();
-        let addr = <Self as Actor>::start_in_arbiter(&arbiter.handle(), |_| Self {
-            backend: Arc::new(backend),
-        });
+        let actor = AJ {};
+        let actor_ref = kameo::spawn(actor);
 
         if let Ok(ref mut aj_addr) = AJ_ADDR.try_write() {
-            **aj_addr = Some(addr.clone());
+            **aj_addr = Some(actor_ref.clone());
         }
 
-        addr
+        actor_ref
     }
 
-    pub fn quick_start() -> Addr<Self> {
+    /// Quick start AJ with in-memory backend
+    pub fn quick_start() -> ActorRef<Self> {
         Self::start(InMemory::default())
-    }
-
-    pub fn register<M>(&self, queue_name: &str) -> Addr<WorkQueue<M>>
-    where
-        M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-        WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
-    {
-        let type_id = TypeId::of::<M>();
-
-        let registry = &QUEUE_REGISTRY;
-        if registry.registry_by_name.contains_key(queue_name) {
-            panic!("You already register queue with name: {}", queue_name);
-        }
-        if registry.registry.contains_key(&type_id) {
-            panic!("You already register queue with type: {:?}", type_id);
-        }
-
-        // Start Queue in an arbiter thread
-        let queue_addr = WorkQueue::<M>::start_with_name(queue_name.into(), self.backend.clone());
-        registry
-            .registry
-            .insert(type_id, Box::new(queue_addr.clone()));
-        registry
-            .registry_by_name
-            .insert(queue_name.into(), Box::new(queue_addr.clone()));
-
-        queue_addr
     }
 
     pub async fn enqueue_job<M>(
@@ -141,31 +132,23 @@ impl AJ {
     ) -> Result<(), Error>
     where
         M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-        WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
     {
-        let addr = if let Some(addr) = get_work_queue_address() {
-            addr
+        let actor_ref = if let Some(actor_ref) = get_work_queue_address() {
+            actor_ref
         } else {
-            info!("Not found WorkQueue for {}", stringify!(M));
-            let message = InitWorkQueue {
-                queue_name: queue_name.into(),
-                _type: PhantomData,
-            };
-            let aj_addr = get_aj_address().expect("AJ is not start, please start it via AJ::start");
-            aj_addr.send(message).await?
+            info!("Not found WorkQueue for {}, creating...", queue_name);
+            register_work_queue::<M>(queue_name)
         };
-        enqueue_job(addr, job, config).await
+        enqueue_job(actor_ref, job, config).await
     }
 
     pub async fn cancel_job<M>(job_id: String) -> Result<(), Error>
     where
         M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-
-        WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
     {
-        let addr: Option<Addr<WorkQueue<M>>> = get_work_queue_address();
-        if let Some(queue_addr) = addr {
-            cancel_job(queue_addr, job_id).await
+        let actor_ref: Option<ActorRef<WorkQueue<M>>> = get_work_queue_address();
+        if let Some(queue_ref) = actor_ref {
+            cancel_job(queue_ref, job_id).await
         } else {
             Err(Error::NoQueueRegister)
         }
@@ -174,11 +157,10 @@ impl AJ {
     pub async fn get_job<M>(job_id: &str) -> Option<Job<M>>
     where
         M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-        WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
     {
-        let addr: Option<Addr<WorkQueue<M>>> = get_work_queue_address();
-        if let Some(queue_addr) = addr {
-            get_job(queue_addr, job_id).await
+        let actor_ref: Option<ActorRef<WorkQueue<M>>> = get_work_queue_address();
+        if let Some(queue_ref) = actor_ref {
+            get_job(queue_ref, job_id).await
         } else {
             None
         }
@@ -198,7 +180,6 @@ impl AJ {
             + Serialize
             + DeserializeOwned
             + 'static,
-        WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
     {
         let job = Self::get_job::<M>(job_id).await;
         if let Some(mut job) = job {
@@ -217,11 +198,10 @@ impl AJ {
     pub async fn retry_job<M>(job_id: &str) -> Result<bool, Error>
     where
         M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-        WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
     {
-        let addr: Option<Addr<WorkQueue<M>>> = get_work_queue_address();
-        if let Some(queue_addr) = addr {
-            retry_job(queue_addr, job_id).await
+        let actor_ref: Option<ActorRef<WorkQueue<M>>> = get_work_queue_address();
+        if let Some(queue_ref) = actor_ref {
+            retry_job(queue_ref, job_id).await
         } else {
             Err(Error::NoQueueRegister)
         }
@@ -230,7 +210,6 @@ impl AJ {
     pub async fn add_job<M>(job: Job<M>, queue_name: &str) -> Result<String, Error>
     where
         M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-        WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
     {
         let job_id = job.id().to_string();
         let config = EnqueueConfig::new_re_run();
@@ -241,11 +220,10 @@ impl AJ {
     pub async fn update_work_queue<M>(config: WorkQueueConfig) -> Result<(), Error>
     where
         M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-        WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
     {
-        let addr: Option<Addr<WorkQueue<M>>> = get_work_queue_address();
-        if let Some(queue_addr) = addr {
-            update_work_queue_config(queue_addr, config).await
+        let actor_ref: Option<ActorRef<WorkQueue<M>>> = get_work_queue_address();
+        if let Some(queue_ref) = actor_ref {
+            update_work_queue_config(queue_ref, config).await
         } else {
             Err(Error::NoQueueRegister)
         }
@@ -259,55 +237,29 @@ impl AJ {
     }
 }
 
-#[derive(Message)]
-#[rtype(result = "Addr<WorkQueue<M>>")]
-pub struct InitWorkQueue<M>
-where
-    M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-    WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
-{
-    pub queue_name: String,
-    _type: PhantomData<M>,
-}
-
-impl<M> Handler<InitWorkQueue<M>> for AJ
-where
-    M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-    WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
-{
-    type Result = Addr<WorkQueue<M>>;
-
-    fn handle(&mut self, msg: InitWorkQueue<M>, _: &mut Self::Context) -> Self::Result {
-        self.register(&msg.queue_name)
-    }
-}
-
-/// This message will handle fire and forgot style
-#[derive(Message)]
-#[rtype(result = "()")]
+// Message: JustRunJob (fire and forget style)
 pub struct JustRunJob<M>
 where
     M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-    WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
 {
     pub job: Job<M>,
     pub queue_name: String,
 }
 
-impl<M> Handler<JustRunJob<M>> for AJ
+impl<M> Message<JustRunJob<M>> for AJ
 where
     M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-    WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
 {
-    type Result = ();
+    type Reply = ();
 
-    fn handle(&mut self, msg: JustRunJob<M>, ctx: &mut Self::Context) -> Self::Result {
-        let task = async move {
-            if let Err(reason) = AJ::add_job(msg.job, &msg.queue_name).await {
-                error!("Cannot start job {reason:?}");
-            }
-        };
-        wrap_future::<_, Self>(task).spawn(ctx)
+    async fn handle(
+        &mut self,
+        msg: JustRunJob<M>,
+        _ctx: Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
+        if let Err(reason) = AJ::add_job(msg.job, &msg.queue_name).await {
+            error!("Cannot start job {reason:?}");
+        }
     }
 }
 
@@ -315,45 +267,11 @@ where
 mod tests {
     use super::{get_aj_address, AJ};
 
-    #[test]
-    fn test_start_aj_with_non_tokio_runtime() {
-        let addr = AJ::quick_start();
-        let register_addr = get_aj_address();
+    #[tokio::test]
+    async fn test_start_aj_under_tokio_runtime() {
+        let _actor_ref = AJ::quick_start();
+        let register_ref = get_aj_address();
 
-        assert!(register_addr.is_some());
-        assert_eq!(addr, register_addr.unwrap());
-    }
-
-    #[test]
-    fn test_start_aj_under_tokio_runtime() {
-        use tokio::runtime::Builder;
-        let tokio_rt = Builder::new_current_thread().build().unwrap();
-        tokio_rt.block_on(async {
-            let addr = AJ::quick_start();
-            let register_addr = get_aj_address();
-
-            assert!(register_addr.is_some());
-            assert_eq!(addr, register_addr.unwrap());
-        })
-    }
-
-    #[test]
-    fn test_start_aj_under_actix_runtime() {
-        let system = actix_rt::System::new();
-        system.block_on(async {
-            let addr = AJ::quick_start();
-            let register_addr = get_aj_address();
-
-            assert!(register_addr.is_some());
-            assert_eq!(addr, register_addr.unwrap());
-        });
-    }
-
-    #[test]
-    fn test_start_multiple_times() {
-        let addr = AJ::quick_start();
-        let second_addr = AJ::quick_start();
-
-        assert_eq!(addr, second_addr);
+        assert!(register_ref.is_some());
     }
 }

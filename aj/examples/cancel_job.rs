@@ -1,12 +1,11 @@
 use aj::{
     async_trait,
     export::core::{
-        actix_rt::time::sleep,
         chrono::Duration,
         get_now_as_secs,
         serde::{Deserialize, Serialize},
     },
-    main, BackgroundJob, Executable, JobContext, AJ,
+    BackgroundJob, Executable, JobContext, AJ,
 };
 
 #[derive(BackgroundJob, Serialize, Deserialize, Debug, Clone)]
@@ -24,7 +23,7 @@ impl Executable for Print {
     }
 }
 
-#[main]
+#[tokio::main]
 async fn main() {
     AJ::quick_start();
     let job_id = Print { number: 1 }
@@ -43,5 +42,5 @@ async fn main() {
         .await
         .unwrap();
 
-    sleep(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 }

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use aj::job;
-use aj::{export::core::actix_rt::time::sleep, main, AJ};
+use aj::AJ;
 
 #[job]
 fn hello(name: String) {
@@ -14,7 +14,7 @@ async fn async_hello(name: String) {
     println!("Hello async, {name}");
 }
 
-#[main]
+#[tokio::main]
 async fn main() {
     // Start AJ engine
     AJ::quick_start();
@@ -26,5 +26,5 @@ async fn main() {
     let _ = async_hello::just_run("AJ".into());
 
     // Sleep 1 ms to view the result from job
-    sleep(Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
 }

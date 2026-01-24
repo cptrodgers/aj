@@ -1,4 +1,3 @@
-use actix_rt::time::sleep;
 use aj::{BackgroundJob, AJ};
 
 use crate::default_print_job::Print;
@@ -17,5 +16,5 @@ pub async fn run() {
         .await
         .unwrap();
 
-    sleep(std::time::Duration::from_secs(3)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 }

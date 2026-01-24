@@ -263,7 +263,7 @@ mod tests {
         Job::new(TestJob { number })
     }
 
-    #[actix::test]
+    #[tokio::test]
     async fn test_job() {
         let number = 1;
         let mut default_job = default_job(number);
@@ -278,7 +278,7 @@ mod tests {
         assert_eq!(default_job.context.run_count, 1);
     }
 
-    #[actix::test]
+    #[tokio::test]
     async fn test_schedule_job() {
         let number = 1;
         let schedule_at = get_now() + Duration::from_secs(1);
@@ -288,7 +288,7 @@ mod tests {
         assert!(schedule_job.context.job_type == JobType::ScheduledAt(schedule_at))
     }
 
-    #[actix::test]
+    #[tokio::test]
     async fn test_cron_job() {
         let number = 1;
         let expression = "0 1 1 1 * * *";
@@ -299,7 +299,7 @@ mod tests {
         assert!(schedule_job.context.job_type == expected_cron);
     }
 
-    #[actix::test]
+    #[tokio::test]
     async fn test_retry() {
         #[derive(Default, Debug, Clone, Serialize)]
         pub struct TestRetryJob {

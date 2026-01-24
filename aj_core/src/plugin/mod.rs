@@ -2,21 +2,34 @@ pub mod job_plugin;
 
 pub use job_plugin::*;
 
-use actix::*;
-use std::{marker::PhantomData, sync::Arc};
+use kameo::actor::ActorRef;
+use kameo::message::{Context, Message};
+use kameo::Actor;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
 use crate::{Error, Executable, JobStatus};
 
-#[derive(Clone, Default)]
+static PLUGIN_CENTER: OnceLock<ActorRef<PluginCenter>> = OnceLock::new();
+
+#[derive(Clone, Default, Actor)]
 pub struct PluginCenter {
     plugins: Vec<Arc<JobPluginWrapper>>,
 }
 
 impl PluginCenter {
+    /// Get or initialize the global PluginCenter actor
+    fn get_or_init() -> ActorRef<Self> {
+        PLUGIN_CENTER
+            .get_or_init(|| kameo::spawn(PluginCenter::default()))
+            .clone()
+    }
+
     pub async fn register(plugin: JobPluginWrapper) -> Result<(), Error> {
-        Self::from_registry()
-            .send(RegisterPlugin { plugin })
-            .await?;
+        Self::get_or_init()
+            .ask(RegisterPlugin { plugin })
+            .await
+            .map_err(|e| Error::ActorError(format!("{:?}", e)))?;
         Ok(())
     }
 
@@ -24,108 +37,96 @@ impl PluginCenter {
     where
         M: Executable + Clone + Send + 'static,
     {
-        let msg: ChangeStatus<M> = ChangeStatus {
-            job_id,
-            status,
-            phantom: PhantomData,
-        };
-        Self::from_registry().do_send(msg);
+        let actor_ref = Self::get_or_init();
+        let msg = ChangeStatusMsg { job_id, status };
+        // Fire and forget - spawn a task to send the message
+        tokio::spawn(async move {
+            let _ = actor_ref.tell(msg).await;
+        });
     }
 
     pub(crate) async fn before<M>(job_id: String)
     where
         M: Executable + Clone + Send + 'static,
     {
-        let msg: RunHook<M> = RunHook {
+        let msg = RunHookMsg {
             job_id,
             before: true,
-            phantom: PhantomData,
         };
-        let _ = Self::from_registry().send(msg).await;
+        let _ = Self::get_or_init().ask(msg).await;
     }
 
     pub(crate) async fn after<M>(job_id: String)
     where
         M: Executable + Clone + Send + 'static,
     {
-        let msg: RunHook<M> = RunHook {
+        let msg = RunHookMsg {
             job_id,
-            before: true,
-            phantom: PhantomData,
+            before: false,
         };
-        let _ = Self::from_registry().send(msg).await;
+        let _ = Self::get_or_init().ask(msg).await;
     }
 }
 
-impl Actor for PluginCenter {
-    type Context = Context<Self>;
-}
-
-impl SystemService for PluginCenter {}
-impl Supervised for PluginCenter {}
-
-#[derive(Message)]
-#[rtype(result = "()")]
+// Message: RegisterPlugin
 pub struct RegisterPlugin {
     pub plugin: JobPluginWrapper,
 }
 
-impl Handler<RegisterPlugin> for PluginCenter {
-    type Result = ();
+impl Message<RegisterPlugin> for PluginCenter {
+    type Reply = ();
 
-    fn handle(&mut self, msg: RegisterPlugin, _: &mut Self::Context) -> Self::Result {
-        self.plugins.push(Arc::new(msg.plugin))
+    async fn handle(
+        &mut self,
+        msg: RegisterPlugin,
+        _ctx: Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.plugins.push(Arc::new(msg.plugin));
     }
 }
 
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct RunHook<M>
-where
-    M: Executable + Clone + 'static,
-{
+// Message: RunHookMsg (non-generic version)
+pub struct RunHookMsg {
     pub job_id: String,
     pub before: bool,
-    phantom: PhantomData<M>,
 }
 
-impl<M: Executable + Clone> Handler<RunHook<M>> for PluginCenter {
-    type Result = ResponseFuture<()>;
+impl Message<RunHookMsg> for PluginCenter {
+    type Reply = ();
 
-    fn handle(&mut self, msg: RunHook<M>, _ctx: &mut Self::Context) -> Self::Result {
-        let plugins = self.plugins.clone();
-        Box::pin(async move {
-            for plugin in plugins {
-                if msg.before {
-                    plugin.before_run::<M>(&msg.job_id).await;
-                } else {
-                    plugin.after_run::<M>(&msg.job_id).await;
-                }
+    async fn handle(
+        &mut self,
+        msg: RunHookMsg,
+        _ctx: Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
+        let job_id = msg.job_id;
+        let before = msg.before;
+        for plugin in &self.plugins {
+            if before {
+                plugin.hook.before_run(&job_id).await;
+            } else {
+                plugin.hook.after_run(&job_id).await;
             }
-        })
+        }
     }
 }
 
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct ChangeStatus<M>
-where
-    M: Executable + Clone + 'static,
-{
+// Message: ChangeStatusMsg (non-generic version)
+pub struct ChangeStatusMsg {
     pub job_id: String,
     pub status: JobStatus,
-    phantom: PhantomData<M>,
 }
 
-impl<M: Executable + Clone> Handler<ChangeStatus<M>> for PluginCenter {
-    type Result = ResponseFuture<()>;
+impl Message<ChangeStatusMsg> for PluginCenter {
+    type Reply = ();
 
-    fn handle(&mut self, msg: ChangeStatus<M>, _ctx: &mut Self::Context) -> Self::Result {
-        let plugins = self.plugins.clone();
-        Box::pin(async move {
-            for plugin in plugins {
-                plugin.change_status::<M>(&msg.job_id, msg.status).await;
-            }
-        })
+    async fn handle(
+        &mut self,
+        msg: ChangeStatusMsg,
+        _ctx: Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
+        for plugin in &self.plugins {
+            plugin.hook.change_status(&msg.job_id, msg.status).await;
+        }
     }
 }

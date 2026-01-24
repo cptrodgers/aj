@@ -1,15 +1,15 @@
-# a# aj
+# aj
 ![ci status](https://github.com/cptrodgers/aj/actions/workflows/test-and-build.yml/badge.svg)
 
-Aj is a simple, customizable, and feature-rich background job processing library for Rust.
-It can work with any runtime by running new actix-rt in a separated thread if it detects that an actix-rt runtime is not present.
+AJ is a simple, customizable, and feature-rich background job processing library for Rust.
+It runs on pure Tokio runtime using the Kameo actor framework.
 
 ## Install
 
 ```toml
-aj = "0.7.0"
+aj = "0.7.2"
 serde = { version = "1.0.64", features = ["derive"] } # Serialize and deserialize the job
-actix-rt = "2.2" # Actor model runtime engine
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] } # Async runtime
 ```
 
 ## Quick start
@@ -22,19 +22,19 @@ async fn hello(name: String) {
     println!("Hello {name}");
 }
 
-#[aj::main]
+#[tokio::main]
 async fn main() {
-    // AJ will be backed by run in-memory backend.
-    // If you wish to use redis as the backend for aj.
+    // AJ will be backed by in-memory backend.
+    // If you wish to use redis as the backend for aj:
     // AJ::start(aj::Redis::new("redis://localhost:6379"));
     AJ::quick_start();
-    // Fire and forget the job. No gruantee job is queued
+    // Fire and forget the job. No guarantee job is queued
     hello::just_run("Rodgers".into());
-    // Or waiting job is queued
+    // Or wait for job to be queued
     hello::run("AJ".into()).await;
 
-    // Sleep 1 sec to view the result from job (if you want to wait the job run)
-    // sleep(Duration::from_secs(1)).await;
+    // Sleep 1 sec to view the result from job (if you want to wait for the job to run)
+    // tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 }
 ```
 

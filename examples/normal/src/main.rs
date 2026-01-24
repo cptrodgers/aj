@@ -7,7 +7,7 @@ pub mod retry_job;
 pub mod schedule_job;
 pub mod update_job;
 
-use aj::{main, redis::Redis, AJ};
+use aj::{redis::Redis, AJ};
 use plugin::SamplePlugin;
 
 #[allow(dead_code)]
@@ -15,7 +15,7 @@ fn run_aj_redis_engine() {
     AJ::start(Redis::new("redis://localhost:6379"));
 }
 
-#[main]
+#[tokio::main]
 async fn main() {
     // Run AJ engine with In Memory
     AJ::quick_start();
