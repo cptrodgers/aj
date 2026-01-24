@@ -4,16 +4,18 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
+use uuid::Uuid;
 
-use crate::job::{Job, JobStatus};
-use crate::types::{get_from_storage, upsert_to_storage, Backend, QueueDirection};
-use crate::{Error, Executable, JobType};
+use crate::job::{Job, JobStatus, JobType};
+use crate::types::{load_job, save_job, Backend};
+use crate::util::get_now_as_ms;
+use crate::{Error, Executable};
 
 const DEFAULT_TICK_DURATION: Duration = Duration::from_millis(100);
 const MAX_PROCESSING_JOBS: usize = 20;
+const DEFAULT_LOCK_TTL_MS: u64 = 30000; // 30 seconds
 
 #[derive(Debug, Clone)]
 pub struct EnqueueConfig {
@@ -44,6 +46,7 @@ impl EnqueueConfig {
 pub struct WorkQueueConfig {
     pub process_tick_duration: Duration,
     pub max_processing_jobs: usize,
+    pub lock_ttl_ms: u64,
 }
 
 impl WorkQueueConfig {
@@ -51,6 +54,7 @@ impl WorkQueueConfig {
         Self {
             max_processing_jobs: MAX_PROCESSING_JOBS,
             process_tick_duration: DEFAULT_TICK_DURATION,
+            lock_ttl_ms: DEFAULT_LOCK_TTL_MS,
         }
     }
 }
@@ -68,6 +72,7 @@ where
     Self: Actor<Context = Context<Self>>,
 {
     name: Arc<String>,
+    worker_id: String,
     config: WorkQueueConfig,
     _type: PhantomData<M>,
     backend: Arc<dyn Backend>,
@@ -88,18 +93,16 @@ where
     pub fn new(job_name: String, backend: Arc<dyn Backend>) -> Self {
         Self {
             name: Arc::new(job_name),
+            worker_id: Uuid::new_v4().to_string(),
             config: WorkQueueConfig::default(),
             _type: PhantomData,
             backend,
         }
     }
 
-    pub fn format_queue_name(&self, status: JobStatus) -> String {
-        format!("{}:queue:{:?}", self.name, status)
-    }
-
-    pub fn storage_name(&self) -> String {
-        format!("{}:storage", self.name)
+    /// Get the queue name (used as prefix for all queue keys)
+    pub fn queue_name(&self) -> &str {
+        &self.name
     }
 
     pub fn start_with_name(name: String, backend: Arc<dyn Backend + Sync + Send>) -> Addr<Self> {
@@ -112,16 +115,21 @@ where
         })
     }
 
+    // ========================================================================
+    // Job Lifecycle Operations
+    // ========================================================================
+
     pub fn run_with_config(&self, job: Job<M>, config: EnqueueConfig) -> Result<(), Error> {
-        let key = job.id();
-        let existing_job = get_from_storage::<Job<M>>(self.backend.deref(), key)?;
+        let job_id = job.id();
+        let existing_job = load_job::<Job<M>>(self.backend.as_ref(), &self.name, job_id)?;
+
         if let Some(existing_job) = existing_job {
             if config.override_data && !existing_job.is_running() {
                 info!(
-                    "[WorkQueue] Update exising job with new job data: {}",
+                    "[WorkQueue] Update existing job with new job data: {}",
                     job.id()
                 );
-                upsert_to_storage(self.backend.deref(), key, &job)?;
+                save_job(self.backend.as_ref(), &self.name, job_id, &job)?;
             } else {
                 info!(
                     "[WorkQueue] Job is running, skip update job data: {}",
@@ -141,89 +149,126 @@ where
     }
 
     pub fn enqueue(&self, mut job: Job<M>) -> Result<(), Error> {
-        let key = job.id();
-        info!("[WorkQueue] New Job {}", key);
-        self.backend
-            .queue_push(&self.format_queue_name(JobStatus::Queued), key)?;
-        job.enqueue(self.backend.deref())
+        let job_id = job.id().to_string();
+        info!("[WorkQueue] New Job {}", job_id);
+
+        // Update job status
+        job.context.job_status = JobStatus::Queued;
+        job.context.enqueue_at = Some(get_now_as_ms());
+
+        // Save job data
+        save_job(self.backend.as_ref(), &self.name, &job_id, &job)?;
+
+        // Determine which queue to add to based on job type
+        match &job.context.job_type {
+            JobType::Normal => {
+                // Immediate job -> waiting queue
+                self.backend.waiting_push(&self.name, &job_id)?;
+            }
+            JobType::ScheduledAt(schedule_at) => {
+                // Scheduled job -> delayed queue
+                let run_at_ms = schedule_at.timestamp_millis();
+                self.backend.delayed_push(&self.name, &job_id, run_at_ms)?;
+            }
+            JobType::Cron(_, next_slot, _, _) => {
+                // Cron job -> delayed queue with next slot time
+                let run_at_ms = next_slot.timestamp_millis();
+                self.backend.delayed_push(&self.name, &job_id, run_at_ms)?;
+            }
+        }
+
+        crate::PluginCenter::change_status::<M>(job_id, JobStatus::Queued);
+        Ok(())
     }
 
     pub fn re_enqueue(&self, mut job: Job<M>) -> Result<(), Error> {
-        debug!("[WorkQueue] Re-run job {}", job.id());
+        let job_id = job.id().to_string();
+        debug!("[WorkQueue] Re-run job {}", job_id);
 
-        let current_queue = self.format_queue_name(job.context.job_status);
-        self.backend.queue_remove(&current_queue, job.id())?;
-        job.enqueue(self.backend.deref())?;
+        // Remove from active queue
+        self.backend.active_remove(&self.name, &job_id)?;
+        self.backend.lock_release(&job_id, &self.worker_id)?;
 
-        let queued_queue = self.format_queue_name(JobStatus::Queued);
-        if let Err(e) = self.backend.queue_push(&queued_queue, job.id()) {
-            error!("[WorkQueue] Cannot re enqueue {}: {:?}", job.id(), e);
-        };
+        // Update job status
+        job.context.job_status = JobStatus::Queued;
+        save_job(self.backend.as_ref(), &self.name, &job_id, &job)?;
+
+        // Add to appropriate queue based on job type
+        match &job.context.job_type {
+            JobType::Normal => {
+                self.backend.waiting_push(&self.name, &job_id)?;
+            }
+            JobType::ScheduledAt(schedule_at) => {
+                let run_at_ms = schedule_at.timestamp_millis();
+                self.backend.delayed_push(&self.name, &job_id, run_at_ms)?;
+            }
+            JobType::Cron(_, next_slot, _, _) => {
+                let run_at_ms = next_slot.timestamp_millis();
+                self.backend.delayed_push(&self.name, &job_id, run_at_ms)?;
+            }
+        }
+
+        crate::PluginCenter::change_status::<M>(job_id, JobStatus::Queued);
         Ok(())
     }
 
     pub fn mark_job_is_canceled(&self, job_id: &str) {
         info!("Cancel job {}", job_id);
-        let cancelled_queue = self.format_queue_name(JobStatus::Canceled);
-        if let Err(e) = self.backend.queue_push(&cancelled_queue, job_id) {
-            error!("[WorkQueue] Cannot re enqueue {}: {:?}", job_id, e);
-        };
+        // Remove from active and release lock
+        if let Err(e) = self.backend.active_remove(&self.name, job_id) {
+            error!("[WorkQueue] Cannot remove from active {}: {:?}", job_id, e);
+        }
+        if let Err(e) = self.backend.lock_release(job_id, &self.worker_id) {
+            error!("[WorkQueue] Cannot release lock {}: {:?}", job_id, e);
+        }
     }
 
     pub fn mark_job_is_finished(&self, mut job: Job<M>) -> Result<(), Error> {
-        info!("Finish job {}", job.id());
-        self.remove_processing_job(job.id());
-        job.finish(self.backend.deref())?;
+        let job_id = job.id().to_string();
+        info!("Finish job {}", job_id);
 
-        let finished_queue = self.format_queue_name(JobStatus::Finished);
-        if let Err(e) = self.backend.queue_push(&finished_queue, job.id()) {
-            error!("[WorkQueue] Cannot finish {}: {:?}", job.id(), e);
-        };
+        // Update job status
+        job.context.job_status = JobStatus::Finished;
+        job.context.complete_at = Some(get_now_as_ms());
+        save_job(self.backend.as_ref(), &self.name, &job_id, &job)?;
+
+        // Remove from active and release lock
+        self.backend
+            .complete_job(&self.name, &job_id, &self.worker_id)?;
+
+        crate::PluginCenter::change_status::<M>(job_id, JobStatus::Finished);
         Ok(())
     }
 
     pub fn mark_job_is_failed(&self, mut job: Job<M>) -> Result<(), Error> {
-        info!("Failed job {}", job.id());
-        job.fail(self.backend.deref())?;
-        self.push_failed_job(job.id());
+        let job_id = job.id().to_string();
+        info!("Failed job {}", job_id);
+
+        // Update job status
+        job.context.job_status = JobStatus::Failed;
+        job.context.complete_at = Some(get_now_as_ms());
+        save_job(self.backend.as_ref(), &self.name, &job_id, &job)?;
+
+        // Remove from active and release lock
+        self.backend
+            .fail_job(&self.name, &job_id, &self.worker_id)?;
+
+        crate::PluginCenter::change_status::<M>(job_id, JobStatus::Failed);
         Ok(())
     }
 
-    pub fn push_failed_job(&self, job_id: &str) {
-        self.remove_processing_job(job_id);
-        let failed_queue = self.format_queue_name(JobStatus::Failed);
-        if let Err(e) = self.backend.queue_push(&failed_queue, job_id) {
-            error!(
-                "[WorkQueue] Cannot move to failed queue {}: {:?}",
-                job_id, e
-            );
-        };
-    }
-
-    pub fn remove_processing_job(&self, job_id: &str) {
-        let processing_queue = self.format_queue_name(JobStatus::Running);
-        if let Err(reason) = self.backend.queue_remove(&processing_queue, job_id) {
-            error!(
-                "[WorkQueue] Cannot remove job {} in processing queue: {:?}",
-                job_id, reason
-            );
-        };
-    }
-
-    pub fn get_processing_job_ids(&self, count: usize) -> Result<Vec<String>, Error> {
-        let processing_queue_name = self.format_queue_name(JobStatus::Running);
-        let job_ids =
-            self.backend
-                .queue_get(&processing_queue_name, count, QueueDirection::Front)?;
-        Ok(job_ids)
-    }
-
-    pub fn read_job(&self, job_id: &str) -> Result<Option<Job<M>>, Error> {
-        let item = get_from_storage(self.backend.deref(), job_id)?;
-        Ok(item)
-    }
+    // ========================================================================
+    // Job Processing
+    // ========================================================================
 
     pub fn process_jobs(&mut self, ctx: &mut Context<WorkQueue<M>>) {
+        // First, move ready delayed jobs to waiting queue
+        let now_ms = get_now_as_ms();
+        if let Err(e) = self.backend.delayed_move_ready(&self.name, now_ms) {
+            error!("[WorkQueue] Failed to move delayed jobs: {:?}", e);
+        }
+
+        // Then pick and process jobs
         match self.pick_jobs_to_process() {
             Ok(jobs) => {
                 for job in jobs {
@@ -234,77 +279,50 @@ where
                 error!("[WorkQueue]: Cannot pick jobs to process {err:?}",);
             }
         }
+
         ctx.run_later(self.config.process_tick_duration, |work_queue, ctx| {
             work_queue.process_jobs(ctx);
         });
     }
 
     pub fn pick_jobs_to_process(&self) -> Result<Vec<Job<M>>, Error> {
-        let processing_queue = self.format_queue_name(JobStatus::Running);
-        let total_processing_jobs = self.backend.queue_count(&processing_queue).unwrap_or(0);
-        if total_processing_jobs >= self.config.max_processing_jobs {
+        let active_count = self.backend.active_len(&self.name).unwrap_or(0);
+        if active_count >= self.config.max_processing_jobs {
             return Ok(vec![]);
         }
 
-        self.try_pick_specific_ready_jobs(self.config.max_processing_jobs - total_processing_jobs)
-    }
+        let slots_available = self.config.max_processing_jobs - active_count;
+        let mut ready_jobs = Vec::new();
 
-    pub fn try_pick_specific_ready_jobs(&self, total: usize) -> Result<Vec<Job<M>>, Error> {
-        debug!("Try Picking {total} jobs in queue");
-        let idle_queue_name = self.format_queue_name(JobStatus::Queued);
-        let processing_queue_name = self.format_queue_name(JobStatus::Running);
-
-        let idle_queue_length = self.backend.queue_count(&idle_queue_name)?;
-        let mut ready_jobs = vec![];
-        let mut current_cursor = idle_queue_length as i32;
-
-        loop {
-            let job_ids = self
+        for _ in 0..slots_available {
+            // Atomically claim a job from waiting queue
+            match self
                 .backend
-                .queue_get(&idle_queue_name, 20, QueueDirection::Back)?;
-
-            // Update current cursor
-            current_cursor -= job_ids.len() as i32;
-
-            for job_id in job_ids {
-                let job = get_from_storage::<Job<M>>(self.backend.deref(), &job_id)?;
-                if let Some(mut job) = job {
-                    if job.is_ready()
-                        && ready_jobs.len() < total
-                        && !ready_jobs
-                            .iter()
-                            .any(|ready_job: &Job<M>| ready_job.id() == job.id())
+                .claim_job(&self.name, &self.worker_id, self.config.lock_ttl_ms)?
+            {
+                Some(job_id) => {
+                    // Load job data
+                    if let Some(mut job) =
+                        load_job::<Job<M>>(self.backend.as_ref(), &self.name, &job_id)?
                     {
-                        // Job is read to process. Put it in the ready list
-                        job.process(self.backend.deref())?;
+                        // Update job status to running
+                        job.context.job_status = JobStatus::Running;
+                        job.context.run_at = Some(get_now_as_ms());
+                        save_job(self.backend.as_ref(), &self.name, &job_id, &job)?;
+
+                        crate::PluginCenter::change_status::<M>(job_id, JobStatus::Running);
                         ready_jobs.push(job);
-                        self.backend.queue_move(
-                            &idle_queue_name,
-                            &processing_queue_name,
-                            1,
-                            QueueDirection::Back,
-                            QueueDirection::Front,
-                        )?;
-                        continue;
+                    } else {
+                        // Job data not found, remove from active
+                        warn!("[WorkQueue] Job data not found for {}, removing", job_id);
+                        self.backend.active_remove(&self.name, &job_id)?;
+                        self.backend.lock_release(&job_id, &self.worker_id)?;
                     }
                 }
-
-                // Job is not ready to process, move it back to front of queue
-                self.backend.queue_move(
-                    &idle_queue_name,
-                    &idle_queue_name,
-                    1,
-                    QueueDirection::Back,
-                    QueueDirection::Front,
-                )?;
-            }
-
-            if ready_jobs.len() >= total {
-                break;
-            }
-
-            if current_cursor <= 0 {
-                break;
+                None => {
+                    // No more jobs available
+                    break;
+                }
             }
         }
 
@@ -314,7 +332,6 @@ where
     pub fn execute_job_task(&self, job: Job<M>, ctx: &mut Context<WorkQueue<M>>) {
         let this = self.clone();
         let task = async move {
-            // TODO: Consider Smart Pointer to wrap job instead of clone
             if let Err(err) = this.execute_job(job.clone()).await {
                 error!("[WorkQueue] Execute job {} fail: {:?}", job.id(), err);
                 let _ = this.mark_job_is_failed(job);
@@ -324,7 +341,7 @@ where
     }
 
     pub async fn execute_job(&self, mut job: Job<M>) -> Result<(), Error> {
-        // If job is cancelled, move to cancel queued
+        // If job is cancelled, handle it
         if job.is_cancelled() {
             self.mark_job_is_canceled(job.id());
             return Ok(());
@@ -337,10 +354,12 @@ where
             "[WorkQueue] Execution complete. Job {} - Result: {job_output:?}",
             job.id()
         );
+
+        // Check for retry
         if let Some(retry_context) = job.context.retry.as_mut() {
-            if let Some(next_retry_ms) = job.data.retry_at(retry_context, job_output).await {
+            if let Some(next_retry_at) = job.data.retry_at(retry_context, job_output).await {
                 info!("[WorkQueue] Retry this job. {}", job.id());
-                job.context.job_type = JobType::ScheduledAt(next_retry_ms);
+                job.context.job_type = JobType::ScheduledAt(next_retry_at);
                 return self.re_enqueue(job);
             }
         }
@@ -357,13 +376,23 @@ where
         }
     }
 
+    // ========================================================================
+    // Job Management
+    // ========================================================================
+
     pub fn cancel_job(&self, job_id: &str) -> Result<(), Error> {
-        if let Some(mut job) = get_from_storage::<Job<M>>(self.backend.deref(), job_id)? {
+        if let Some(mut job) = load_job::<Job<M>>(self.backend.as_ref(), &self.name, job_id)? {
             // Only cancel queued job
             if job.is_queued() {
-                job.cancel(self.backend.deref())?;
-                self.backend
-                    .queue_remove(&self.format_queue_name(JobStatus::Queued), job_id)?;
+                job.context.job_status = JobStatus::Canceled;
+                job.context.cancel_at = Some(get_now_as_ms());
+                save_job(self.backend.as_ref(), &self.name, job_id, &job)?;
+
+                // Remove from waiting or delayed queue
+                self.backend.waiting_pop(&self.name)?; // Try waiting
+                self.backend.delayed_remove(&self.name, job_id)?; // Try delayed
+
+                crate::PluginCenter::change_status::<M>(job_id.to_string(), JobStatus::Canceled);
             } else {
                 warn!("[WorkQueue] Cannot cancel {:?} job", job.context.job_status);
             }
@@ -373,15 +402,14 @@ where
     }
 
     pub fn get_job(&self, job_id: &str) -> Result<Option<Job<M>>, Error> {
-        let job = get_from_storage::<Job<M>>(self.backend.deref(), job_id)?;
-        Ok(job)
+        load_job(self.backend.as_ref(), &self.name, job_id)
     }
 
     pub fn retry_job(&self, job_id: &str) -> Result<bool, Error> {
-        let job = get_from_storage::<Job<M>>(self.backend.deref(), job_id)?;
+        let job = load_job::<Job<M>>(self.backend.as_ref(), &self.name, job_id)?;
 
         if let Some(job) = job {
-            // Only allow retry done job is (cancelled, failed, finished).
+            // Only allow retry done job (cancelled, failed, finished)
             if job.is_done() {
                 self.re_enqueue(job)?;
                 return Ok(true);
@@ -392,12 +420,24 @@ where
                 );
                 return Ok(false);
             }
-        };
+        }
 
         debug!("[WorkQueue] Don't found job {} to retry", job_id);
         Ok(false)
     }
+
+    pub fn read_job(&self, job_id: &str) -> Result<Option<Job<M>>, Error> {
+        load_job(self.backend.as_ref(), &self.name, job_id)
+    }
+
+    pub fn get_processing_job_ids(&self, _count: usize) -> Result<Vec<String>, Error> {
+        self.backend.active_list(&self.name)
+    }
 }
+
+// ============================================================================
+// Actix Message Handlers
+// ============================================================================
 
 #[derive(Message, Debug)]
 #[rtype(result = "Result<(), Error>")]
@@ -406,7 +446,6 @@ pub struct Enqueue<M: Executable + Clone + Send + Sync + 'static>(pub Job<M>, pu
 impl<M> Handler<Enqueue<M>> for WorkQueue<M>
 where
     M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-
     Self: Actor<Context = Context<Self>>,
 {
     type Result = Result<(), Error>;
@@ -423,7 +462,6 @@ pub async fn enqueue_job<M>(
 ) -> Result<(), Error>
 where
     M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-
     WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
 {
     addr.send::<Enqueue<M>>(Enqueue(job, config)).await?
@@ -438,7 +476,6 @@ pub struct CancelJob {
 impl<M> Handler<CancelJob> for WorkQueue<M>
 where
     M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-
     Self: Actor<Context = Context<Self>>,
 {
     type Result = Result<(), Error>;
@@ -452,7 +489,6 @@ where
 pub async fn cancel_job<M>(addr: Addr<WorkQueue<M>>, job_id: String) -> Result<(), Error>
 where
     M: Executable + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-
     WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
 {
     addr.send::<CancelJob>(CancelJob { job_id }).await?
@@ -553,7 +589,6 @@ where
     WorkQueue<M>: Actor<Context = Context<WorkQueue<M>>>,
 {
     let msg = UpdateWorkQueue { config };
-
     addr.send::<UpdateWorkQueue>(msg).await?;
     Ok(())
 }

@@ -9,6 +9,7 @@ pub enum Error {
     CronError(cron::error::Error),
     MailboxError(MailboxError),
     NoQueueRegister,
+    SerializeError,
 }
 
 #[cfg(feature = "redis")]

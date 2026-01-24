@@ -1,322 +1,557 @@
-use redis::{Client, Commands, Direction, IntoConnectionInfo, RedisResult};
+//! Redis Backend Implementation
+//!
+//! Uses Redis data structures optimized for job queue operations:
+//! - LIST for waiting and active queues (FIFO)
+//! - ZSET (Sorted Set) for delayed queue (sorted by timestamp)
+//! - HASH for job storage
+//! - Lua scripts for atomic operations
 
-use crate::types::{Backend, QueueDirection};
+use redis::{Client, Commands, IntoConnectionInfo, RedisResult, Script};
+
+use crate::types::Backend;
 use crate::Error;
 
+/// Redis backend for distributed job queue.
+///
+/// # Key Naming Convention
+/// - `{queue}:waiting` - LIST of job IDs ready to process
+/// - `{queue}:delayed` - ZSET of job IDs with score = run_at timestamp
+/// - `{queue}:active` - LIST of job IDs currently being processed
+/// - `{queue}:storage` - HASH of job_id -> job_data (JSON)
+/// - `aj:lock:{job_id}` - Lock key for distributed locking
 #[derive(Debug, Clone)]
 pub struct Redis {
     client: Client,
 }
 
 impl Redis {
-    /// Redis::new("redis://localhost:6379/");
+    /// Create a new Redis backend.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let backend = Redis::new("redis://localhost:6379/");
+    /// ```
     pub fn new<T: IntoConnectionInfo>(connection_params: T) -> Self {
-        let client = Client::open(connection_params).unwrap();
+        let client = Client::open(connection_params).expect("Failed to create Redis client");
         Self { client }
     }
 
+    /// Create a Redis backend from an existing client.
     pub fn new_with_client(client: Client) -> Self {
         Self { client }
     }
 
-    pub fn lpush(&self, queue_name: &str, item: &str) -> RedisResult<()> {
-        let mut conn = self.client.get_connection()?;
-        let _: () = conn.lpush(queue_name, item)?;
-        Ok(())
+    fn key_waiting(&self, queue: &str) -> String {
+        format!("{}:waiting", queue)
     }
 
-    pub fn lmove(
-        &self,
-        from_queue: &str,
-        to_queue: &str,
-        count: usize,
-        from_direction: Direction,
-        to_direction: Direction,
-    ) -> RedisResult<Vec<String>> {
-        let mut conn = self.client.get_connection()?;
-        let mut items = vec![];
-        for _ in 0..count {
-            let result: Option<String> = conn.lmove(
-                from_queue,
-                to_queue,
-                clone_direction(&from_direction),
-                clone_direction(&to_direction),
-            )?;
-
-            if let Some(item) = result {
-                items.push(item)
-            }
-        }
-
-        Ok(items)
+    fn key_delayed(&self, queue: &str) -> String {
+        format!("{}:delayed", queue)
     }
 
-    pub fn lrange(
-        &self,
-        queue: &str,
-        count: usize,
-        queue_direction: QueueDirection,
-    ) -> RedisResult<Vec<String>> {
-        let mut conn = self.client.get_connection()?;
-        let items = match queue_direction {
-            QueueDirection::Front => conn.lrange(queue, 0, count as isize - 1)?,
-            QueueDirection::Back => {
-                let mut res: Vec<String> = conn.lrange(queue, -(count as isize), -1)?;
-                res.reverse();
-                res
-            }
-        };
-        Ok(items)
+    fn key_active(&self, queue: &str) -> String {
+        format!("{}:active", queue)
     }
 
-    pub fn llen(&self, queue: &str) -> RedisResult<usize> {
-        let mut conn = self.client.get_connection()?;
-        conn.llen(queue)
+    fn key_storage(&self, queue: &str) -> String {
+        format!("{}:storage", queue)
     }
 
-    pub fn lrem(&self, queue: &str, item: &str) -> RedisResult<usize> {
-        let mut conn = self.client.get_connection()?;
-        conn.lrem(queue, 0, item)
+    fn key_lock(&self, job_id: &str) -> String {
+        format!("aj:lock:{}", job_id)
     }
 }
+
+// ============================================================================
+// Lua Scripts for Atomic Operations
+// ============================================================================
+
+/// Move ready jobs from delayed (ZSET) to waiting (LIST).
+/// KEYS[1] = delayed queue (ZSET)
+/// KEYS[2] = waiting queue (LIST)
+/// ARGV[1] = current timestamp (ms)
+/// Returns: number of jobs moved
+const LUA_DELAYED_MOVE_READY: &str = r#"
+local delayed_key = KEYS[1]
+local waiting_key = KEYS[2]
+local now_ms = tonumber(ARGV[1])
+
+local ready = redis.call('ZRANGEBYSCORE', delayed_key, '-inf', now_ms)
+local count = 0
+
+for i, job_id in ipairs(ready) do
+    redis.call('ZREM', delayed_key, job_id)
+    redis.call('RPUSH', waiting_key, job_id)
+    count = count + 1
+end
+
+return count
+"#;
+
+/// Atomically claim a job: pop from waiting, lock, push to active.
+/// KEYS[1] = waiting queue (LIST)
+/// KEYS[2] = active queue (LIST)
+/// ARGV[1] = worker_id
+/// ARGV[2] = lock TTL (ms)
+/// Returns: job_id or nil
+const LUA_CLAIM_JOB: &str = r#"
+local waiting_key = KEYS[1]
+local active_key = KEYS[2]
+local worker_id = ARGV[1]
+local lock_ttl = tonumber(ARGV[2])
+
+local job_id = redis.call('LPOP', waiting_key)
+if not job_id then
+    return nil
+end
+
+local lock_key = 'aj:lock:' .. job_id
+local acquired = redis.call('SET', lock_key, worker_id, 'NX', 'PX', lock_ttl)
+
+if acquired then
+    redis.call('RPUSH', active_key, job_id)
+    return job_id
+else
+    -- Failed to acquire lock, put job back
+    redis.call('LPUSH', waiting_key, job_id)
+    return nil
+end
+"#;
+
+/// Release lock only if owned by worker.
+/// KEYS[1] = lock key
+/// ARGV[1] = worker_id
+/// Returns: 1 if released, 0 if not owner
+const LUA_LOCK_RELEASE: &str = r#"
+local lock_key = KEYS[1]
+local worker_id = ARGV[1]
+
+if redis.call('GET', lock_key) == worker_id then
+    return redis.call('DEL', lock_key)
+end
+return 0
+"#;
+
+/// Extend lock TTL only if owned by worker.
+/// KEYS[1] = lock key
+/// ARGV[1] = worker_id
+/// ARGV[2] = new TTL (ms)
+/// Returns: 1 if extended, 0 if not owner
+const LUA_LOCK_EXTEND: &str = r#"
+local lock_key = KEYS[1]
+local worker_id = ARGV[1]
+local ttl_ms = tonumber(ARGV[2])
+
+if redis.call('GET', lock_key) == worker_id then
+    return redis.call('PEXPIRE', lock_key, ttl_ms)
+end
+return 0
+"#;
+
+/// Find and requeue orphaned jobs (in active but lock expired).
+/// KEYS[1] = active queue (LIST)
+/// KEYS[2] = waiting queue (LIST)
+/// Returns: list of requeued job IDs
+const LUA_REQUEUE_ORPHANED: &str = r#"
+local active_key = KEYS[1]
+local waiting_key = KEYS[2]
+local orphaned = {}
+
+local job_ids = redis.call('LRANGE', active_key, 0, -1)
+
+for i, job_id in ipairs(job_ids) do
+    local lock_key = 'aj:lock:' .. job_id
+    if redis.call('EXISTS', lock_key) == 0 then
+        redis.call('LREM', active_key, 1, job_id)
+        redis.call('RPUSH', waiting_key, job_id)
+        table.insert(orphaned, job_id)
+    end
+end
+
+return orphaned
+"#;
+
+// ============================================================================
+// Backend Implementation
+// ============================================================================
 
 impl Backend for Redis {
-    fn queue_push(&self, queue_name: &str, item: &str) -> Result<(), Error> {
-        self.lpush(queue_name, item)?;
-        Ok(())
-    }
+    // ========================================================================
+    // Waiting Queue (LIST)
+    // ========================================================================
 
-    fn queue_move(
-        &self,
-        from_queue: &str,
-        to_queue: &str,
-        count: usize,
-        from_position: QueueDirection,
-        to_position: QueueDirection,
-    ) -> Result<Vec<String>, Error> {
-        let from_direction = from_position.into();
-        let to_direction = to_position.into();
-        let res = self.lmove(from_queue, to_queue, count, from_direction, to_direction)?;
-        Ok(res)
-    }
-
-    fn queue_remove(&self, queue: &str, item: &str) -> Result<(), Error> {
-        self.lrem(queue, item)?;
-        Ok(())
-    }
-
-    fn queue_get(
-        &self,
-        queue: &str,
-        count: usize,
-        direction: QueueDirection,
-    ) -> Result<Vec<String>, Error> {
-        let res = self.lrange(queue, count, direction)?;
-        Ok(res)
-    }
-
-    fn queue_count(&self, queue: &str) -> Result<usize, Error> {
-        let res = self.llen(queue)?;
-        Ok(res)
-    }
-
-    fn storage_upsert(&self, hash: &str, key: &str, value: String) -> Result<(), Error> {
+    fn waiting_push(&self, queue: &str, job_id: &str) -> Result<(), Error> {
         let mut conn = self.client.get_connection()?;
-        let _: () = conn.hset(hash, key, value)?;
+        let key = self.key_waiting(queue);
+        conn.rpush::<_, _, ()>(&key, job_id)?;
         Ok(())
     }
 
-    fn storage_get(&self, hash: &str, key: &str) -> Result<Option<String>, Error> {
+    fn waiting_pop(&self, queue: &str) -> Result<Option<String>, Error> {
         let mut conn = self.client.get_connection()?;
-        let res: Option<String> = conn.hget(hash, key)?;
-        Ok(res)
+        let key = self.key_waiting(queue);
+        let result: Option<String> = conn.lpop(&key, None)?;
+        Ok(result)
     }
-}
 
-impl From<QueueDirection> for Direction {
-    fn from(value: QueueDirection) -> Self {
-        match value {
-            QueueDirection::Front => Direction::Left,
-            QueueDirection::Back => Direction::Right,
+    fn waiting_len(&self, queue: &str) -> Result<usize, Error> {
+        let mut conn = self.client.get_connection()?;
+        let key = self.key_waiting(queue);
+        let len: usize = conn.llen(&key)?;
+        Ok(len)
+    }
+
+    // ========================================================================
+    // Delayed Queue (ZSET)
+    // ========================================================================
+
+    fn delayed_push(&self, queue: &str, job_id: &str, run_at_ms: i64) -> Result<(), Error> {
+        let mut conn = self.client.get_connection()?;
+        let key = self.key_delayed(queue);
+        conn.zadd::<_, _, _, ()>(&key, job_id, run_at_ms)?;
+        Ok(())
+    }
+
+    fn delayed_move_ready(&self, queue: &str, now_ms: i64) -> Result<usize, Error> {
+        let mut conn = self.client.get_connection()?;
+        let delayed_key = self.key_delayed(queue);
+        let waiting_key = self.key_waiting(queue);
+
+        let script = Script::new(LUA_DELAYED_MOVE_READY);
+        let count: usize = script
+            .key(&delayed_key)
+            .key(&waiting_key)
+            .arg(now_ms)
+            .invoke(&mut conn)?;
+
+        Ok(count)
+    }
+
+    fn delayed_remove(&self, queue: &str, job_id: &str) -> Result<(), Error> {
+        let mut conn = self.client.get_connection()?;
+        let key = self.key_delayed(queue);
+        conn.zrem::<_, _, ()>(&key, job_id)?;
+        Ok(())
+    }
+
+    fn delayed_len(&self, queue: &str) -> Result<usize, Error> {
+        let mut conn = self.client.get_connection()?;
+        let key = self.key_delayed(queue);
+        let len: usize = conn.zcard(&key)?;
+        Ok(len)
+    }
+
+    // ========================================================================
+    // Active Queue (LIST)
+    // ========================================================================
+
+    fn active_push(&self, queue: &str, job_id: &str) -> Result<(), Error> {
+        let mut conn = self.client.get_connection()?;
+        let key = self.key_active(queue);
+        conn.rpush::<_, _, ()>(&key, job_id)?;
+        Ok(())
+    }
+
+    fn active_remove(&self, queue: &str, job_id: &str) -> Result<(), Error> {
+        let mut conn = self.client.get_connection()?;
+        let key = self.key_active(queue);
+        conn.lrem::<_, _, ()>(&key, 1, job_id)?;
+        Ok(())
+    }
+
+    fn active_len(&self, queue: &str) -> Result<usize, Error> {
+        let mut conn = self.client.get_connection()?;
+        let key = self.key_active(queue);
+        let len: usize = conn.llen(&key)?;
+        Ok(len)
+    }
+
+    fn active_list(&self, queue: &str) -> Result<Vec<String>, Error> {
+        let mut conn = self.client.get_connection()?;
+        let key = self.key_active(queue);
+        let jobs: Vec<String> = conn.lrange(&key, 0, -1)?;
+        Ok(jobs)
+    }
+
+    // ========================================================================
+    // Job Storage (HASH)
+    // ========================================================================
+
+    fn job_save(&self, queue: &str, job_id: &str, data: &str) -> Result<(), Error> {
+        let mut conn = self.client.get_connection()?;
+        let key = self.key_storage(queue);
+        conn.hset::<_, _, _, ()>(&key, job_id, data)?;
+        Ok(())
+    }
+
+    fn job_get(&self, queue: &str, job_id: &str) -> Result<Option<String>, Error> {
+        let mut conn = self.client.get_connection()?;
+        let key = self.key_storage(queue);
+        let data: Option<String> = conn.hget(&key, job_id)?;
+        Ok(data)
+    }
+
+    fn job_delete(&self, queue: &str, job_id: &str) -> Result<(), Error> {
+        let mut conn = self.client.get_connection()?;
+        let key = self.key_storage(queue);
+        conn.hdel::<_, _, ()>(&key, job_id)?;
+        Ok(())
+    }
+
+    // ========================================================================
+    // Distributed Locking
+    // ========================================================================
+
+    fn lock_acquire(&self, job_id: &str, worker_id: &str, ttl_ms: u64) -> Result<bool, Error> {
+        let mut conn = self.client.get_connection()?;
+        let lock_key = self.key_lock(job_id);
+
+        // SET key value NX PX ttl
+        let result: RedisResult<Option<String>> = redis::cmd("SET")
+            .arg(&lock_key)
+            .arg(worker_id)
+            .arg("NX")
+            .arg("PX")
+            .arg(ttl_ms)
+            .query(&mut conn);
+
+        match result {
+            Ok(Some(_)) => Ok(true),
+            Ok(None) => Ok(false),
+            Err(e) => Err(e.into()),
         }
     }
-}
 
-fn clone_direction(direction: &Direction) -> Direction {
-    match direction {
-        Direction::Left => Direction::Left,
-        Direction::Right => Direction::Right,
+    fn lock_release(&self, job_id: &str, worker_id: &str) -> Result<bool, Error> {
+        let mut conn = self.client.get_connection()?;
+        let lock_key = self.key_lock(job_id);
+
+        let script = Script::new(LUA_LOCK_RELEASE);
+        let result: i32 = script.key(&lock_key).arg(worker_id).invoke(&mut conn)?;
+
+        Ok(result == 1)
+    }
+
+    fn lock_extend(&self, job_id: &str, worker_id: &str, ttl_ms: u64) -> Result<bool, Error> {
+        let mut conn = self.client.get_connection()?;
+        let lock_key = self.key_lock(job_id);
+
+        let script = Script::new(LUA_LOCK_EXTEND);
+        let result: i32 = script
+            .key(&lock_key)
+            .arg(worker_id)
+            .arg(ttl_ms)
+            .invoke(&mut conn)?;
+
+        Ok(result == 1)
+    }
+
+    // ========================================================================
+    // Atomic Operations
+    // ========================================================================
+
+    fn claim_job(
+        &self,
+        queue: &str,
+        worker_id: &str,
+        lock_ttl_ms: u64,
+    ) -> Result<Option<String>, Error> {
+        let mut conn = self.client.get_connection()?;
+        let waiting_key = self.key_waiting(queue);
+        let active_key = self.key_active(queue);
+
+        let script = Script::new(LUA_CLAIM_JOB);
+        let result: Option<String> = script
+            .key(&waiting_key)
+            .key(&active_key)
+            .arg(worker_id)
+            .arg(lock_ttl_ms)
+            .invoke(&mut conn)?;
+
+        Ok(result)
+    }
+
+    fn complete_job(&self, queue: &str, job_id: &str, worker_id: &str) -> Result<bool, Error> {
+        // Remove from active and release lock
+        self.active_remove(queue, job_id)?;
+        self.lock_release(job_id, worker_id)?;
+        Ok(true)
+    }
+
+    fn fail_job(&self, queue: &str, job_id: &str, worker_id: &str) -> Result<bool, Error> {
+        // Same as complete for now - remove from active and release lock
+        self.active_remove(queue, job_id)?;
+        self.lock_release(job_id, worker_id)?;
+        Ok(true)
+    }
+
+    fn requeue_orphaned(&self, queue: &str) -> Result<Vec<String>, Error> {
+        let mut conn = self.client.get_connection()?;
+        let active_key = self.key_active(queue);
+        let waiting_key = self.key_waiting(queue);
+
+        let script = Script::new(LUA_REQUEUE_ORPHANED);
+        let orphaned: Vec<String> = script
+            .key(&active_key)
+            .key(&waiting_key)
+            .invoke(&mut conn)?;
+
+        Ok(orphaned)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use uuid::Uuid;
 
-    use super::*;
-    use crate::types::QueueDirection;
-
-    fn init_redis() -> Redis {
-        let client = Client::open("redis://localhost:6379/").unwrap();
-        let backend = Redis::new_with_client(client.clone());
-        backend
+    fn test_redis() -> Redis {
+        Redis::new("redis://localhost:6379/")
     }
 
-    fn clean(channel: &str) {
-        let client = Client::open("redis://localhost:6379/").unwrap();
-        client
-            .get_connection()
-            .unwrap()
-            .del::<&str, i32>(channel)
+    fn unique_queue() -> String {
+        format!("test:{}", Uuid::new_v4())
+    }
+
+    fn cleanup(redis: &Redis, queue: &str) {
+        let mut conn = redis.client.get_connection().unwrap();
+        let _: () = redis::cmd("DEL")
+            .arg(redis.key_waiting(queue))
+            .arg(redis.key_delayed(queue))
+            .arg(redis.key_active(queue))
+            .arg(redis.key_storage(queue))
+            .query(&mut conn)
             .unwrap();
     }
 
     #[test]
-    fn test_queue_push() {
-        let queue_name = Uuid::new_v4().to_string();
-        let backend = init_redis();
+    fn test_waiting_queue() {
+        let redis = test_redis();
+        let queue = unique_queue();
 
-        // Push an item to the queue
-        let result = backend.queue_push(&queue_name, "item1");
-        assert!(result.is_ok());
+        redis.waiting_push(&queue, "job1").unwrap();
+        redis.waiting_push(&queue, "job2").unwrap();
 
-        // Check that the queue contains the pushed item
-        let items = backend
-            .queue_get(&queue_name, 1, QueueDirection::Front)
-            .unwrap();
-        assert_eq!(items, vec!["item1".to_string()]);
+        assert_eq!(redis.waiting_len(&queue).unwrap(), 2);
+        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some("job1".to_string()));
+        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some("job2".to_string()));
+        assert_eq!(redis.waiting_pop(&queue).unwrap(), None);
 
-        // Push another item and check
-        backend.queue_push(&queue_name, "item2").unwrap();
-        let items = backend
-            .queue_get(&queue_name, 2, QueueDirection::Front)
-            .unwrap();
-        assert_eq!(items, vec!["item2".to_string(), "item1".to_string()]); // Inserting to front
-        clean(&queue_name);
+        cleanup(&redis, &queue);
     }
 
     #[test]
-    fn test_queue_move() {
-        let backend = init_redis();
+    fn test_delayed_queue() {
+        let redis = test_redis();
+        let queue = unique_queue();
 
-        let from_queue = "from_queue";
-        let to_queue = "to_queue";
+        redis.delayed_push(&queue, "job1", 1000).unwrap();
+        redis.delayed_push(&queue, "job2", 2000).unwrap();
+        redis.delayed_push(&queue, "job3", 3000).unwrap();
 
-        // Push items to the from_queue
-        backend.queue_push(from_queue, "item1").unwrap();
-        backend.queue_push(from_queue, "item2").unwrap();
+        assert_eq!(redis.delayed_len(&queue).unwrap(), 3);
 
-        // Move one item from the front of from_queue to the back of to_queue
-        let result = backend.queue_move(
-            from_queue,
-            to_queue,
-            1,
-            QueueDirection::Front,
-            QueueDirection::Back,
-        );
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), vec!["item2".to_string()]); // item2 is at the front
+        // Move ready jobs (job1 and job2)
+        let moved = redis.delayed_move_ready(&queue, 2500).unwrap();
+        assert_eq!(moved, 2);
 
-        // Check that to_queue now contains the moved item
-        let items = backend
-            .queue_get(to_queue, 1, QueueDirection::Front)
-            .unwrap();
-        assert_eq!(items, vec!["item2".to_string()]);
+        assert_eq!(redis.delayed_len(&queue).unwrap(), 1);
+        assert_eq!(redis.waiting_len(&queue).unwrap(), 2);
 
-        clean(&from_queue);
-        clean(&to_queue);
+        // Check order
+        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some("job1".to_string()));
+        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some("job2".to_string()));
+
+        cleanup(&redis, &queue);
     }
 
     #[test]
-    fn test_queue_remove() {
-        let queue_name = Uuid::new_v4().to_string();
-        let backend = init_redis();
+    fn test_claim_job() {
+        let redis = test_redis();
+        let queue = unique_queue();
 
-        // Push items to the queue
-        backend.queue_push(&queue_name, "item1").unwrap();
-        backend.queue_push(&queue_name, "item2").unwrap();
+        redis.waiting_push(&queue, "job1").unwrap();
+        redis.waiting_push(&queue, "job2").unwrap();
 
-        // Remove an item from the queue
-        let result = backend.queue_remove(&queue_name, "item1");
-        assert!(result.is_ok());
+        // Claim job1
+        let job = redis.claim_job(&queue, "worker1", 30000).unwrap();
+        assert_eq!(job, Some("job1".to_string()));
+        assert_eq!(redis.waiting_len(&queue).unwrap(), 1);
+        assert_eq!(redis.active_len(&queue).unwrap(), 1);
 
-        // Ensure the item was removed
-        let items = backend
-            .queue_get(&queue_name, 10, QueueDirection::Front)
-            .unwrap();
-        assert_eq!(items, vec!["item2".to_string()]);
+        // Verify lock exists
+        let mut conn = redis.client.get_connection().unwrap();
+        let lock_value: Option<String> = conn.get(redis.key_lock("job1")).unwrap();
+        assert_eq!(lock_value, Some("worker1".to_string()));
 
-        clean(&queue_name);
+        cleanup(&redis, &queue);
+        let _: () = conn.del(redis.key_lock("job1")).unwrap();
     }
 
     #[test]
-    fn test_queue_get() {
-        let queue_name = Uuid::new_v4().to_string();
-        let backend = init_redis();
+    fn test_lock_operations() {
+        let redis = test_redis();
+        let job_id = format!("job:{}", Uuid::new_v4());
 
-        // Push multiple items to the queue
-        backend.queue_push(&queue_name, "item1").unwrap();
-        backend.queue_push(&queue_name, "item2").unwrap();
-        backend.queue_push(&queue_name, "item3").unwrap();
+        // Acquire lock
+        assert!(redis.lock_acquire(&job_id, "worker1", 30000).unwrap());
 
-        // Retrieve items from the queue
-        let items = backend
-            .queue_get(&queue_name, 2, QueueDirection::Front)
-            .unwrap();
-        assert_eq!(items, vec!["item3".to_string(), "item2".to_string()]); // Insertion is to the front
+        // Try to acquire again (should fail)
+        assert!(!redis.lock_acquire(&job_id, "worker2", 30000).unwrap());
 
-        // Retrieve items from the queue from back
-        let items = backend
-            .queue_get(&queue_name, 2, QueueDirection::Back)
-            .unwrap();
-        assert_eq!(items, vec!["item1".to_string(), "item2".to_string()]); // Insertion is to the front
+        // Extend lock (by owner)
+        assert!(redis.lock_extend(&job_id, "worker1", 60000).unwrap());
 
-        clean(&queue_name);
+        // Extend lock (by non-owner - should fail)
+        assert!(!redis.lock_extend(&job_id, "worker2", 60000).unwrap());
+
+        // Release lock (by non-owner - should fail)
+        assert!(!redis.lock_release(&job_id, "worker2").unwrap());
+
+        // Release lock (by owner)
+        assert!(redis.lock_release(&job_id, "worker1").unwrap());
+
+        // Now worker2 can acquire
+        assert!(redis.lock_acquire(&job_id, "worker2", 30000).unwrap());
+        redis.lock_release(&job_id, "worker2").unwrap();
     }
 
     #[test]
-    fn test_queue_count() {
-        let queue_name = Uuid::new_v4().to_string();
-        let backend = init_redis();
+    fn test_requeue_orphaned() {
+        let redis = test_redis();
+        let queue = unique_queue();
 
-        // Initially, the queue should be empty
-        let count = backend.queue_count(&queue_name).unwrap();
-        assert_eq!(count, 0);
+        // Simulate orphaned jobs (in active but no lock)
+        redis.active_push(&queue, "job1").unwrap();
+        redis.active_push(&queue, "job2").unwrap();
 
-        // Push some items and check the count
-        backend.queue_push(&queue_name, "item1").unwrap();
-        backend.queue_push(&queue_name, "item2").unwrap();
-        let count = backend.queue_count(&queue_name).unwrap();
-        assert_eq!(count, 2);
+        // job1 has a lock, job2 doesn't (orphaned)
+        redis.lock_acquire("job1", "worker1", 30000).unwrap();
 
-        clean(&queue_name)
+        let orphaned = redis.requeue_orphaned(&queue).unwrap();
+        assert_eq!(orphaned, vec!["job2".to_string()]);
+
+        assert_eq!(redis.active_len(&queue).unwrap(), 1);
+        assert_eq!(redis.waiting_len(&queue).unwrap(), 1);
+        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some("job2".to_string()));
+
+        cleanup(&redis, &queue);
+        redis.lock_release("job1", "worker1").unwrap();
     }
 
     #[test]
-    fn test_storage_upsert_and_get() {
-        let backend = init_redis();
-        let hash_name = "test_hash";
-        let key = "key1";
-        let value = "value1";
+    fn test_job_storage() {
+        let redis = test_redis();
+        let queue = unique_queue();
 
-        // Upsert a key-value pair into the storage
-        let result = backend.storage_upsert(hash_name, key, value.to_string());
-        assert!(result.is_ok());
+        redis.job_save(&queue, "job1", r#"{"data": 1}"#).unwrap();
 
-        // Get the value back from storage
-        let stored_value = backend.storage_get(hash_name, key).unwrap();
-        assert_eq!(stored_value, Some(value.to_string()));
-    }
+        let data = redis.job_get(&queue, "job1").unwrap();
+        assert_eq!(data, Some(r#"{"data": 1}"#.to_string()));
 
-    #[test]
-    fn test_storage_get_non_existent_key() {
-        let backend = init_redis();
+        redis.job_delete(&queue, "job1").unwrap();
+        assert_eq!(redis.job_get(&queue, "job1").unwrap(), None);
 
-        let hash_name = "test_hash";
-        let key = "non_existent_key";
-
-        // Try to get a non-existent key from the storage
-        let stored_value = backend.storage_get(hash_name, key).unwrap();
-        assert_eq!(stored_value, None);
+        cleanup(&redis, &queue);
     }
 }
