@@ -1,4 +1,27 @@
 //! Backend in AJ support both storage and broker
+//!
+//! # Queue Design
+//!
+//! ```text
+//! ┌──────────────────────────────────────────────────────────────┐
+//! │                    Queue Architecture                        │
+//! │                                                              │
+//! │  {queue}:delayed  (Sorted Set)  ← Scheduled jobs            │
+//! │                     score = run_at timestamp                 │
+//! │                           │                                  │
+//! │                           │ move when score <= now           │
+//! │                           ▼                                  │
+//! │  {queue}:waiting  (List)  ← Ready to process                │
+//! │                           │                                  │
+//! │                           │ claim (atomic pop + lock)        │
+//! │                           ▼                                  │
+//! │  {queue}:active   (List)  ← Currently processing            │
+//! │                           │                                  │
+//! │                           │ complete/fail                    │
+//! │                           ▼                                  │
+//! │  {queue}:storage  (Hash)  ← Job data (JSON)                 │
+//! └──────────────────────────────────────────────────────────────┘
+//! ```
 
 #![allow(clippy::borrowed_box)]
 
@@ -7,64 +30,168 @@ use serde::Serialize;
 
 use crate::Error;
 
-#[derive(Debug, Clone, Copy)]
-pub enum QueueDirection {
-    Front,
-    Back,
-}
+/// Backend trait for queue and storage operations.
+///
+/// Implementations should be thread-safe (Send + Sync).
+pub trait Backend: Send + Sync {
+    // ========================================================================
+    // Waiting Queue (LIST) - Jobs ready to be processed
+    // ========================================================================
 
-pub trait Backend {
-    fn queue_push(&self, queue_name: &str, item: &str) -> Result<(), Error>;
+    /// Push a job ID to the waiting queue (adds to back).
+    fn waiting_push(&self, queue: &str, job_id: &str) -> Result<(), Error>;
 
-    fn queue_move(
-        &self,
-        from_queue: &str,
-        to_queue: &str,
-        count: usize,
-        from_position: QueueDirection,
-        to_position: QueueDirection,
-    ) -> Result<Vec<String>, Error>;
+    /// Pop a job ID from the waiting queue (removes from front).
+    /// Returns None if queue is empty.
+    fn waiting_pop(&self, queue: &str) -> Result<Option<String>, Error>;
 
-    fn queue_remove(&self, queue: &str, item: &str) -> Result<(), Error>;
+    /// Get the number of jobs in the waiting queue.
+    fn waiting_len(&self, queue: &str) -> Result<usize, Error>;
 
-    fn queue_get(
-        &self,
-        queue: &str,
-        count: usize,
-        direction: QueueDirection,
-    ) -> Result<Vec<String>, Error>;
+    // ========================================================================
+    // Delayed Queue (SORTED SET) - Jobs scheduled for future execution
+    // ========================================================================
 
-    fn queue_count(&self, queue: &str) -> Result<usize, Error>;
+    /// Add a job to the delayed queue with a scheduled execution time.
+    /// The job will be moved to waiting queue when `run_at_ms <= now`.
+    fn delayed_push(&self, queue: &str, job_id: &str, run_at_ms: i64) -> Result<(), Error>;
 
-    fn storage_upsert(&self, hash: &str, key: &str, value: String) -> Result<(), Error>;
+    /// Move all jobs that are ready (run_at_ms <= now_ms) from delayed to waiting.
+    /// Returns the number of jobs moved.
+    fn delayed_move_ready(&self, queue: &str, now_ms: i64) -> Result<usize, Error>;
 
-    fn storage_get(&self, hash: &str, key: &str) -> Result<Option<String>, Error>;
-}
+    /// Remove a job from the delayed queue.
+    fn delayed_remove(&self, queue: &str, job_id: &str) -> Result<(), Error>;
 
-pub const STORAGE_HASH: &str = "aj_storage";
+    /// Get the number of jobs in the delayed queue.
+    fn delayed_len(&self, queue: &str) -> Result<usize, Error>;
 
-pub fn upsert_to_storage<T: Serialize>(
-    backend: &dyn Backend,
-    key: &str,
-    value: T,
-) -> Result<(), Error> {
-    let value = serde_json::to_string(&value).unwrap_or("".into());
-    let res = backend.storage_upsert(STORAGE_HASH, key, value);
-    if let Err(e) = &res {
-        warn!("[Storage] Upsert failed {key} Failed {:?}", e);
+    // ========================================================================
+    // Active Queue (LIST) - Jobs currently being processed
+    // ========================================================================
+
+    /// Add a job ID to the active queue.
+    fn active_push(&self, queue: &str, job_id: &str) -> Result<(), Error>;
+
+    /// Remove a job ID from the active queue.
+    fn active_remove(&self, queue: &str, job_id: &str) -> Result<(), Error>;
+
+    /// Get the number of jobs in the active queue.
+    fn active_len(&self, queue: &str) -> Result<usize, Error>;
+
+    /// Get all job IDs in the active queue (for reaper/recovery).
+    fn active_list(&self, queue: &str) -> Result<Vec<String>, Error>;
+
+    // ========================================================================
+    // Job Storage (HASH) - Stores job data as JSON
+    // ========================================================================
+
+    /// Save job data to storage.
+    fn job_save(&self, queue: &str, job_id: &str, data: &str) -> Result<(), Error>;
+
+    /// Get job data from storage.
+    fn job_get(&self, queue: &str, job_id: &str) -> Result<Option<String>, Error>;
+
+    /// Delete job data from storage.
+    fn job_delete(&self, queue: &str, job_id: &str) -> Result<(), Error>;
+
+    // ========================================================================
+    // Distributed Locking (Optional - for multi-worker setups)
+    // ========================================================================
+
+    /// Acquire a lock on a job. Returns true if acquired, false if already locked.
+    /// Default implementation always succeeds (for single-process backends).
+    fn lock_acquire(&self, _job_id: &str, _worker_id: &str, _ttl_ms: u64) -> Result<bool, Error> {
+        Ok(true)
     }
 
-    res
+    /// Release a lock on a job. Returns true if released, false if not owner.
+    fn lock_release(&self, _job_id: &str, _worker_id: &str) -> Result<bool, Error> {
+        Ok(true)
+    }
+
+    /// Extend a lock's TTL (heartbeat). Returns true if extended, false if lock lost.
+    fn lock_extend(&self, _job_id: &str, _worker_id: &str, _ttl_ms: u64) -> Result<bool, Error> {
+        Ok(true)
+    }
+
+    // ========================================================================
+    // Atomic Operations (Combines multiple operations atomically)
+    // ========================================================================
+
+    /// Atomically claim a job: pop from waiting, acquire lock, push to active.
+    /// Returns the job ID if successful, None if no jobs available.
+    ///
+    /// Default implementation is NOT atomic (suitable for single-process only).
+    /// Redis backend should use Lua script for atomicity.
+    fn claim_job(
+        &self,
+        queue: &str,
+        worker_id: &str,
+        lock_ttl_ms: u64,
+    ) -> Result<Option<String>, Error> {
+        // Default: simple pop + push (not atomic, but works for single process)
+        if let Some(job_id) = self.waiting_pop(queue)? {
+            if self.lock_acquire(&job_id, worker_id, lock_ttl_ms)? {
+                self.active_push(queue, &job_id)?;
+                return Ok(Some(job_id));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Atomically complete a job: remove from active, release lock.
+    /// Returns true if completed, false if job wasn't in active queue.
+    fn complete_job(&self, queue: &str, job_id: &str, worker_id: &str) -> Result<bool, Error> {
+        self.active_remove(queue, job_id)?;
+        self.lock_release(job_id, worker_id)?;
+        Ok(true)
+    }
+
+    /// Atomically fail a job: remove from active, release lock.
+    fn fail_job(&self, queue: &str, job_id: &str, worker_id: &str) -> Result<bool, Error> {
+        self.active_remove(queue, job_id)?;
+        self.lock_release(job_id, worker_id)?;
+        Ok(true)
+    }
+
+    /// Requeue orphaned jobs (jobs in active queue without valid locks).
+    /// Returns list of job IDs that were requeued.
+    /// Default implementation does nothing (single-process doesn't need this).
+    fn requeue_orphaned(&self, _queue: &str) -> Result<Vec<String>, Error> {
+        Ok(vec![])
+    }
 }
 
-pub fn get_from_storage<T: DeserializeOwned>(
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Helper to serialize and save a job to storage.
+pub fn save_job<T: Serialize>(
     backend: &dyn Backend,
-    key: &str,
+    queue: &str,
+    job_id: &str,
+    job: &T,
+) -> Result<(), Error> {
+    let data = serde_json::to_string(job).map_err(|e| {
+        warn!("[Storage] Serialize failed for {}: {:?}", job_id, e);
+        Error::SerializeError
+    })?;
+    backend.job_save(queue, job_id, &data)
+}
+
+/// Helper to load a job from storage.
+pub fn load_job<T: DeserializeOwned>(
+    backend: &dyn Backend,
+    queue: &str,
+    job_id: &str,
 ) -> Result<Option<T>, Error> {
-    let value = backend.storage_get(STORAGE_HASH, key).ok().flatten();
-    let item = match value {
-        Some(value) => serde_json::from_str(&value).ok(),
-        _ => None,
-    };
-    Ok(item)
+    match backend.job_get(queue, job_id)? {
+        Some(data) => {
+            let job = serde_json::from_str(&data).ok();
+            Ok(job)
+        }
+        None => Ok(None),
+    }
 }
