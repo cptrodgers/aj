@@ -1,8 +1,8 @@
 # aj
 ![ci status](https://github.com/cptrodgers/aj/actions/workflows/test-and-build.yml/badge.svg)
 
-Aj is a simple, customizable, and feature-rich background job processing library for Rust.
-It can work with any runtime by running new actix-rt in a separated thread if it detects that an actix-rt runtime is not present.
+AJ is a simple, customizable, and feature-rich background job processing library for Rust.
+It can work with any runtime by running a new actix-rt in a separate thread if it detects that an actix-rt runtime is not present.
 
 ## Install
 
@@ -41,10 +41,10 @@ async fn main() {
 
     // Fire and forget the job. No guarantee job is queued
     hello::just_run("Rodgers".into());
-    // Or waiting job is queued
+    // Or wait for job to be queued
     hello::run("AJ".into()).await;
 
-    // Sleep 1 sec to view the result from job (if you want to wait the job run)
+    // Sleep 1 sec to view the result from the job (if you want to wait for the job to run)
     // sleep(Duration::from_secs(1)).await;
 }
 ```
@@ -62,16 +62,16 @@ async fn main() {
   - Backoff exponential retry
 - [Plugin](#plugin)
 - [Config Queue](#config)
-- Custom Backend
+- [Backends](#backends)
 - DAG (Coming soon)
 - Distributed Mode (Coming soon)
 - Monitoring & Web Admin UI
 
 ### Declare a Job
 
-We support 2 ways to define a job. Macro and structure.
+We support 2 ways to define a job: macro and struct.
 
-** Use macro #[job] ([Full example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/macro_job.rs)) macro **
+**Use macro #[job]** ([Full example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/macro_job.rs))
 
 ```rust
 #[job]
@@ -82,8 +82,8 @@ async fn hello(name: String) {
 
 **Structure**
 
-You can declare a Background Job by use Struct and implement trait `Executable` for that struct.
-[Full example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/print_job.rs)
+You can declare a background job by using a struct and implementing the `Executable` trait for that struct.
+[Full example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/default_print_job.rs)
 
 ```rust
 #[derive(BackgroundJob, Serialize, Deserialize, Debug, Clone)]
@@ -95,7 +95,7 @@ pub struct Print {
 impl Executable for Print {
     type Output = ();
 
-    async fn execute(&self, _context: &JobContext) -> Self::Output {
+    async fn execute(&mut self, _context: &JobContext) -> Self::Output {
         println!("Hello Job {}, {}", self.number, get_now());
     }
 }
@@ -116,7 +116,8 @@ async fn main() {
 ### Scheduled Job
 
 [Example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/schedule_job.rs)
-Given that we have `Print` job.
+
+Given that we have a `Print` job:
 
 ```rust
 // Delay 1 sec and run
@@ -139,7 +140,7 @@ let _ = Print { number: 2 }
 [Example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/cron_job.rs)
 
 ```rust
-// Cron, run this job every seconds
+// Cron, run this job every second
 let _ = Print { number: 3 }
     .job()
     .cron("* * * * * * *")
@@ -152,7 +153,7 @@ let _ = Print { number: 3 }
 [Example](https://github.com/cptrodgers/aj/blob/master/examples/normal/src/update_job.rs)
 
 ```rust
-// Run cron job every secs
+// Run cron job every second
 let job_id = Print { number: 1 }
     .job()
     .cron("* * * * * * *")
@@ -166,7 +167,7 @@ AJ::update_job(&job_id, Print { number: 2 }, None)
     .unwrap();
 ```
 
-Update Job Context (Such as retry logic, cron and schedule, etc)
+Update job context (such as retry logic, cron and schedule, etc.):
 
 ```rust
 AJ::update_job(
@@ -199,22 +200,22 @@ let job = AJ::get_job::<Print>(&job_id).await;
 
 #### Auto Retry
 
-First, you should declare the failed output via method `is_failed_output`.
-If the result is true, then the job will retry (by following retry strategy)
+First, you should declare the failed output via the `is_failed_output` method.
+If the result is true, the job will retry (following the retry strategy).
 
 ```rust
 #[async_trait]
 impl Executable for Print {
     type Output = Result<(), String>;
 
-    async fn execute(&self, context: &JobContext) -> Self::Output {
+    async fn execute(&mut self, context: &JobContext) -> Self::Output {
         println!("Hello {}, {}", self.number, context.run_count);
         Err("I'm failing".into())
     }
 
-    // Determine where your job is failed.
-    // For example, check job output is return Err type
-    async fn is_failed_output(&self, job_output: Self::Output) -> bool {
+    // Determine whether your job has failed.
+    // For example, check if the job output returns an Err type
+    async fn is_failed_output(&self, job_output: &Self::Output) -> bool {
         job_output.is_err()
     }
 }
@@ -226,7 +227,7 @@ impl Executable for Print {
 let max_retries = 3;
 let job = Print { number: 1 }
     .job()
-    // Try to retry 3 times, retry after failed job 1 sec.
+    // Try to retry 3 times, retry 1 sec after failed job
     .retry(Retry::new_interval_retry(
         Some(max_retries),
         chrono::Duration::seconds(1),
@@ -241,7 +242,7 @@ let job = Print { number: 3 }
     .job()
     .retry(Retry::new_exponential_backoff(
         Some(max_retries),
-        // Initial Backoff value
+        // Initial backoff value
         chrono::Duration::seconds(1),
     ));
 let _ = job.run().await.unwrap();
@@ -272,15 +273,15 @@ pub struct SamplePlugin;
 #[async_trait]
 impl JobPlugin for SamplePlugin {
     async fn change_status(&self, job_id: &str, job_status: JobStatus) {
-        println!("Hello, Job {job_id} change status to {job_status:?}");
+        println!("Hello, Job {job_id} changed status to {job_status:?}");
     }
 
     async fn before_run(&self, job_id: &str) {
-        println!("Before job {job_id} run");
+        println!("Before job {job_id} runs");
     }
 
     async fn after_run(&self, job_id: &str) {
-        println!("After job {job_id} run");
+        println!("After job {job_id} runs");
     }
 }
 
@@ -293,17 +294,19 @@ async fn main() {
 ### Config
 
 ```rust
-AJ::update_work_queue(aj::queue:WorkQueueConfig {
-    // 50 ms will fetch job again
-    process_tick_duration: choro::Duration::milliseconds(50),
-    // Only process 10 jobs at time
+AJ::update_work_queue(aj::WorkQueueConfig {
+    // Fetch jobs every 50 ms
+    process_tick_duration: Duration::from_millis(50),
+    // Only process 10 jobs at a time
     max_processing_jobs: 10,
+    // Lock TTL for distributed locking (default: 30 seconds)
+    lock_ttl_ms: 30000,
 }).await;
 ```
 
 ### Backends
 
-AJ supports multiple backends for job storage and processing:
+For detailed backend architecture and implementation guide, see [Backend and Queue Design](docs/backend_and_queue.md).
 
 #### In-Memory Backend (Default)
 
@@ -338,7 +341,7 @@ AJ::start(Redis::new("redis://localhost:6379"));
 If you wish to customize the backend of AJ, such as using Postgres, MySQL, Kafka, RabbitMQ, etc.,
 you can implement the `Backend` trait and then use it in AJ.
 
-[In Memory Example](https://github.com/cptrodgers/aj/blob/master/aj_core/src/backend/mem.rs)
+See [Backend and Queue Design](docs/backend_and_queue.md) for the full implementation guide.
 
 ```rust
 pub struct YourBackend {
@@ -346,7 +349,7 @@ pub struct YourBackend {
 }
 
 impl Backend for YourBackend {
-    // ...
+    // Implement required methods...
 }
 
 // Use your custom backend
@@ -354,7 +357,7 @@ AJ::start(YourBackend::new());
 ```
 
 
-### Distributed Mode (Run multiple AJ in many rust applications)
+### Distributed Mode (Run multiple AJ instances in many Rust applications)
 
 In Roadmap
 
@@ -378,6 +381,6 @@ Licensed under either of <a href="LICENSE-APACHE">Apache License, Version
 
 <sub>
 Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in aj by you, as defined in the Apache-2.0 license, shall be
+for inclusion in AJ by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
 </sub>
