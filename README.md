@@ -1,3 +1,5 @@
+
+
 # aj
 ![ci status](https://github.com/cptrodgers/aj/actions/workflows/test-and-build.yml/badge.svg)
 
@@ -24,6 +26,7 @@ aj = { version = "0.8.0", features = ["redis"] }
 
 ```rust
 use aj::job;
+use aj::AJ;
 
 #[job]
 async fn hello(name: String) {
