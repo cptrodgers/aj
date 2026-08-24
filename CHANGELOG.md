@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Postgres backend**, behind a new `postgres` feature, at the same level of support as
+  `redis`:
+
+  ```rust
+  use aj::postgres::Postgres;
+  AJ::start(Postgres::new("postgres://postgres:postgres@localhost:5432/mydb"));
+  ```
+
+  Two prefixed tables (`aj_job_queue`, `aj_job_lock`) plus a sequence, created on first use.
+  Claiming is a single `FOR UPDATE SKIP LOCKED` statement, so jobs are handed to exactly one
+  worker without advisory locks or polling races. `Postgres::new` is synchronous and does no
+  I/O, so it drops into `AJ::start` exactly like `Redis::new`.
+
+  Configurable via `Postgres::builder(url).table_prefix(..).pool_size(..).auto_migrate(..)`,
+  with `Postgres::schema_sql(prefix)` for teams that apply DDL out-of-band and
+  `purge_expired_locks(grace_ms)` to reclaim locks left by crashed workers.
+
 ## 0.9.0
 
 ### Breaking

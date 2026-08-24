@@ -14,12 +14,15 @@ serde = { version = "1.0.64", features = ["derive"] } # Serialize and deserializ
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] } # Async runtime
 ```
 
-### Enable Redis Backend
+### Enable a Persistent Backend
 
-By default, AJ uses an in-memory backend. To use Redis as the backend, enable the `redis` feature:
+By default, AJ uses an in-memory backend. To use Redis or Postgres instead, enable the
+matching feature:
 
 ```toml
 aj = { version = "0.9.0", features = ["redis"] }
+# or
+aj = { version = "0.9.0", features = ["postgres"] }
 ```
 
 ## Quick start
@@ -41,6 +44,10 @@ async fn main() {
     // Or start with Redis backend (requires `redis` feature)
     // use aj::redis::Redis;
     // AJ::start(Redis::new("redis://localhost:6379"));
+
+    // Or Postgres (requires `postgres` feature)
+    // use aj::postgres::Postgres;
+    // AJ::start(Postgres::new("postgres://postgres:postgres@localhost:5432/mydb"));
 
     // Fire and forget the job. No guarantee job is queued
     hello::just_run("Rodgers".into());
@@ -339,9 +346,50 @@ use aj::redis::Redis;
 AJ::start(Redis::new("redis://localhost:6379"));
 ```
 
+#### Postgres Backend (Optional)
+
+For deployments that already run Postgres and would rather not add Redis, enable the
+`postgres` feature:
+
+```toml
+aj = { version = "0.9.0", features = ["postgres"] }
+```
+
+```rust
+use aj::postgres::Postgres;
+
+AJ::start(Postgres::new("postgres://postgres:postgres@localhost:5432/mydb"));
+```
+
+The schema is created on first use if it does not already exist: an `aj_job_queue` table, an
+`aj_job_lock` table, and an `aj_job_queue_seq` sequence. Everything is prefixed so AJ can
+share a database with your application tables.
+
+To use a different prefix, a larger pool, or to manage the schema yourself:
+
+```rust
+let backend = Postgres::builder("postgres://localhost/mydb")
+    .table_prefix("myapp_aj_")   // must match ^[a-z_][a-z0-9_]*$
+    .pool_size(20)
+    .auto_migrate(false)         // skip the CREATE TABLE IF NOT EXISTS
+    .build()?;
+
+// The DDL, if you would rather apply it as a migration:
+println!("{}", Postgres::schema_sql("myapp_aj_")?);
+```
+
+Two operational notes:
+
+- Job rows are kept after completion, matching how the Redis backend keeps its storage hash.
+  Released locks are deleted, but a crashed worker leaves its lock row behind until it
+  expires; call `purge_expired_locks(grace_ms)` periodically to reclaim them.
+- Jobs moved off the delayed queue keep their scheduled time as the ordering key, so an
+  overdue job is picked up ahead of one enqueued later. Redis appends them to the back of the
+  waiting list instead.
+
 #### Custom Backend
 
-If you wish to customize the backend of AJ, such as using Postgres, MySQL, Kafka, RabbitMQ, etc.,
+If you wish to customize the backend of AJ, such as using MySQL, Kafka, RabbitMQ, etc.,
 you can implement the `Backend` trait and then use it in AJ.
 
 See [Backend and Queue Design](docs/backend_and_queue.md) for the full implementation guide.
