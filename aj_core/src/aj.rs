@@ -99,7 +99,7 @@ pub struct AJ {}
 
 impl AJ {
     /// Start AJ with a custom backend
-    pub fn start(backend: impl Backend + Send + Sync + 'static) -> ActorRef<Self> {
+    pub fn start(backend: impl Backend + 'static) -> ActorRef<Self> {
         if let Some(aj_addr) = get_aj_address() {
             warn!("AJ is running. Return current AJ");
             return aj_addr;

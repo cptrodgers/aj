@@ -11,6 +11,11 @@ use std::sync::{Arc, Mutex};
 use crate::types::Backend;
 use crate::Error;
 
+type WaitingQueues = Arc<Mutex<HashMap<String, VecDeque<String>>>>;
+type DelayedQueues = Arc<Mutex<HashMap<String, BTreeMap<i64, Vec<String>>>>>;
+type ActiveQueues = Arc<Mutex<HashMap<String, Vec<String>>>>;
+type JobStorage = Arc<Mutex<HashMap<String, HashMap<String, String>>>>;
+
 /// In-memory backend for single-process job queue.
 ///
 /// This backend stores all data in memory and is suitable for:
@@ -20,16 +25,16 @@ use crate::Error;
 #[derive(Default, Clone)]
 pub struct InMemory {
     /// Waiting queue: jobs ready to be processed (FIFO)
-    waiting: Arc<Mutex<HashMap<String, VecDeque<String>>>>,
+    waiting: WaitingQueues,
 
     /// Delayed queue: jobs scheduled for future (sorted by timestamp)
-    delayed: Arc<Mutex<HashMap<String, BTreeMap<i64, Vec<String>>>>>,
+    delayed: DelayedQueues,
 
     /// Active queue: jobs currently being processed
-    active: Arc<Mutex<HashMap<String, Vec<String>>>>,
+    active: ActiveQueues,
 
     /// Job storage: job_id -> job_data (JSON)
-    storage: Arc<Mutex<HashMap<String, HashMap<String, String>>>>,
+    storage: JobStorage,
 }
 
 impl InMemory {

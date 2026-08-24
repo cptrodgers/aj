@@ -17,9 +17,10 @@ pub struct CronContext {
 }
 
 #[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum JobType {
     // DateTime<Utc> background job
+    #[default]
     Normal,
     // Schedule Job: (Next Tick At)
     ScheduledAt(#[serde(with = "ts_microseconds")] DateTime<Utc>),
@@ -30,12 +31,6 @@ pub enum JobType {
         #[serde(default)] i32,
         #[serde(default)] CronContext,
     ),
-}
-
-impl Default for JobType {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 impl JobType {
@@ -51,19 +46,14 @@ impl JobType {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub enum JobStatus {
+    #[default]
     Queued = 0,
     Running = 1,
     Finished = 2,
     Failed = 3,
     Canceled = 4,
-}
-
-impl Default for JobStatus {
-    fn default() -> Self {
-        Self::Queued
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

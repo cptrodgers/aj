@@ -33,6 +33,9 @@ impl PluginCenter {
         Ok(())
     }
 
+    // `M` is currently unused: `ChangeStatusMsg`/`RunHookMsg` are non-generic, so the job
+    // type is dropped before it reaches the plugin filter. See `JobPluginWrapper`.
+    #[allow(clippy::extra_unused_type_parameters)]
     pub(crate) fn change_status<M>(job_id: String, status: JobStatus)
     where
         M: Executable + Clone + Send + 'static,
@@ -45,6 +48,9 @@ impl PluginCenter {
         });
     }
 
+    // `M` is currently unused: `ChangeStatusMsg`/`RunHookMsg` are non-generic, so the job
+    // type is dropped before it reaches the plugin filter. See `JobPluginWrapper`.
+    #[allow(clippy::extra_unused_type_parameters)]
     pub(crate) async fn before<M>(job_id: String)
     where
         M: Executable + Clone + Send + 'static,
@@ -56,6 +62,9 @@ impl PluginCenter {
         let _ = Self::get_or_init().ask(msg).await;
     }
 
+    // `M` is currently unused: `ChangeStatusMsg`/`RunHookMsg` are non-generic, so the job
+    // type is dropped before it reaches the plugin filter. See `JobPluginWrapper`.
+    #[allow(clippy::extra_unused_type_parameters)]
     pub(crate) async fn after<M>(job_id: String)
     where
         M: Executable + Clone + Send + 'static,

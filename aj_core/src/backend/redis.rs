@@ -413,41 +413,57 @@ mod tests {
         format!("test:{}", Uuid::new_v4())
     }
 
-    fn cleanup(redis: &Redis, queue: &str) {
+    /// Job ids must be unique per test. Lock keys are `aj:lock:{job_id}` (see `key_lock`) and
+    /// are *not* queue-scoped, so two tests sharing a job id contend for the same lock when
+    /// the suite runs in parallel against one Redis instance.
+    fn unique_job() -> String {
+        format!("job:{}", Uuid::new_v4())
+    }
+
+    /// Deletes every key a test may have touched, including the global lock keys for
+    /// `job_ids`, so a panicking test cannot leak a lock into the next run.
+    fn cleanup(redis: &Redis, queue: &str, job_ids: &[&str]) {
         let mut conn = redis.client.get_connection().unwrap();
-        let _: () = redis::cmd("DEL")
-            .arg(redis.key_waiting(queue))
+        let mut cmd = redis::cmd("DEL");
+        cmd.arg(redis.key_waiting(queue))
             .arg(redis.key_delayed(queue))
             .arg(redis.key_active(queue))
-            .arg(redis.key_storage(queue))
-            .query(&mut conn)
-            .unwrap();
+            .arg(redis.key_storage(queue));
+        for job_id in job_ids {
+            cmd.arg(redis.key_lock(job_id));
+        }
+        let _: () = cmd.query(&mut conn).unwrap();
     }
 
     #[test]
     fn test_waiting_queue() {
         let redis = test_redis();
         let queue = unique_queue();
+        let job1 = unique_job();
+        let job2 = unique_job();
 
-        redis.waiting_push(&queue, "job1").unwrap();
-        redis.waiting_push(&queue, "job2").unwrap();
+        redis.waiting_push(&queue, &job1).unwrap();
+        redis.waiting_push(&queue, &job2).unwrap();
 
         assert_eq!(redis.waiting_len(&queue).unwrap(), 2);
-        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some("job1".to_string()));
-        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some("job2".to_string()));
+        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some(job1.clone()));
+        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some(job2.clone()));
         assert_eq!(redis.waiting_pop(&queue).unwrap(), None);
 
-        cleanup(&redis, &queue);
+        cleanup(&redis, &queue, &[&job1, &job2]);
     }
 
     #[test]
     fn test_delayed_queue() {
         let redis = test_redis();
         let queue = unique_queue();
+        let job1 = unique_job();
+        let job2 = unique_job();
+        let job3 = unique_job();
 
-        redis.delayed_push(&queue, "job1", 1000).unwrap();
-        redis.delayed_push(&queue, "job2", 2000).unwrap();
-        redis.delayed_push(&queue, "job3", 3000).unwrap();
+        redis.delayed_push(&queue, &job1, 1000).unwrap();
+        redis.delayed_push(&queue, &job2, 2000).unwrap();
+        redis.delayed_push(&queue, &job3, 3000).unwrap();
 
         assert_eq!(redis.delayed_len(&queue).unwrap(), 3);
 
@@ -459,39 +475,40 @@ mod tests {
         assert_eq!(redis.waiting_len(&queue).unwrap(), 2);
 
         // Check order
-        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some("job1".to_string()));
-        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some("job2".to_string()));
+        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some(job1.clone()));
+        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some(job2.clone()));
 
-        cleanup(&redis, &queue);
+        cleanup(&redis, &queue, &[&job1, &job2, &job3]);
     }
 
     #[test]
     fn test_claim_job() {
         let redis = test_redis();
         let queue = unique_queue();
+        let job1 = unique_job();
+        let job2 = unique_job();
 
-        redis.waiting_push(&queue, "job1").unwrap();
-        redis.waiting_push(&queue, "job2").unwrap();
+        redis.waiting_push(&queue, &job1).unwrap();
+        redis.waiting_push(&queue, &job2).unwrap();
 
         // Claim job1
         let job = redis.claim_job(&queue, "worker1", 30000).unwrap();
-        assert_eq!(job, Some("job1".to_string()));
+        assert_eq!(job, Some(job1.clone()));
         assert_eq!(redis.waiting_len(&queue).unwrap(), 1);
         assert_eq!(redis.active_len(&queue).unwrap(), 1);
 
         // Verify lock exists
         let mut conn = redis.client.get_connection().unwrap();
-        let lock_value: Option<String> = conn.get(redis.key_lock("job1")).unwrap();
+        let lock_value: Option<String> = conn.get(redis.key_lock(&job1)).unwrap();
         assert_eq!(lock_value, Some("worker1".to_string()));
 
-        cleanup(&redis, &queue);
-        let _: () = conn.del(redis.key_lock("job1")).unwrap();
+        cleanup(&redis, &queue, &[&job1, &job2]);
     }
 
     #[test]
     fn test_lock_operations() {
         let redis = test_redis();
-        let job_id = format!("job:{}", Uuid::new_v4());
+        let job_id = unique_job();
 
         // Acquire lock
         assert!(redis.lock_acquire(&job_id, "worker1", 30000).unwrap());
@@ -520,38 +537,40 @@ mod tests {
     fn test_requeue_orphaned() {
         let redis = test_redis();
         let queue = unique_queue();
+        let job1 = unique_job();
+        let job2 = unique_job();
 
         // Simulate orphaned jobs (in active but no lock)
-        redis.active_push(&queue, "job1").unwrap();
-        redis.active_push(&queue, "job2").unwrap();
+        redis.active_push(&queue, &job1).unwrap();
+        redis.active_push(&queue, &job2).unwrap();
 
         // job1 has a lock, job2 doesn't (orphaned)
-        redis.lock_acquire("job1", "worker1", 30000).unwrap();
+        assert!(redis.lock_acquire(&job1, "worker1", 30000).unwrap());
 
         let orphaned = redis.requeue_orphaned(&queue).unwrap();
-        assert_eq!(orphaned, vec!["job2".to_string()]);
+        assert_eq!(orphaned, vec![job2.clone()]);
 
         assert_eq!(redis.active_len(&queue).unwrap(), 1);
         assert_eq!(redis.waiting_len(&queue).unwrap(), 1);
-        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some("job2".to_string()));
+        assert_eq!(redis.waiting_pop(&queue).unwrap(), Some(job2.clone()));
 
-        cleanup(&redis, &queue);
-        redis.lock_release("job1", "worker1").unwrap();
+        cleanup(&redis, &queue, &[&job1, &job2]);
     }
 
     #[test]
     fn test_job_storage() {
         let redis = test_redis();
         let queue = unique_queue();
+        let job1 = unique_job();
 
-        redis.job_save(&queue, "job1", r#"{"data": 1}"#).unwrap();
+        redis.job_save(&queue, &job1, r#"{"data": 1}"#).unwrap();
 
-        let data = redis.job_get(&queue, "job1").unwrap();
+        let data = redis.job_get(&queue, &job1).unwrap();
         assert_eq!(data, Some(r#"{"data": 1}"#.to_string()));
 
-        redis.job_delete(&queue, "job1").unwrap();
-        assert_eq!(redis.job_get(&queue, "job1").unwrap(), None);
+        redis.job_delete(&queue, &job1).unwrap();
+        assert_eq!(redis.job_get(&queue, &job1).unwrap(), None);
 
-        cleanup(&redis, &queue);
+        cleanup(&redis, &queue, &[&job1]);
     }
 }

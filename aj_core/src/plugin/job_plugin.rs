@@ -39,9 +39,16 @@ pub trait JobPlugin {
 
 pub struct JobPluginWrapper {
     pub(crate) hook: Box<dyn JobPlugin + Send + Sync + 'static>,
+    // TODO: the per-job-type filter below is not reachable yet. `AJ::register_plugin` always
+    // passes an empty `job_type_ids`, and `PluginCenter` invokes `hook` directly instead of
+    // going through this wrapper, so `should_run` is never consulted. Kept until we decide
+    // whether to wire it up or drop it.
+    #[allow(dead_code)]
     job_type_ids: Vec<TypeId>,
 }
 
+// See the note on `job_type_ids`: these type-filtered wrappers have no production caller yet.
+#[allow(dead_code)]
 impl JobPluginWrapper {
     pub(crate) fn new(
         plugin: impl JobPlugin + Send + Sync + 'static,
@@ -93,36 +100,42 @@ mod tests {
     };
 
     use async_trait::async_trait;
-    use lazy_static::lazy_static;
 
     use super::{JobPlugin, JobPluginWrapper};
-    use crate::{Executable, JobContext, JobStatus};
+    use crate::{Executable, Job, JobContext, JobStatus};
 
-    lazy_static! {
-        static ref NUMBER: Arc<Mutex<i32>> = Arc::new(Mutex::new(0));
-        static ref JOB_ID: Arc<Mutex<String>> = Arc::new(Mutex::new("".into()));
+    /// Records the job id of the last hook invocation. Each test builds its own instance, so
+    /// the tests stay independent when the suite runs in parallel. The state lives behind an
+    /// `Arc`, so cloning before handing the plugin to `JobPluginWrapper` keeps a read handle.
+    #[derive(Clone, Default)]
+    pub struct SimplePlugin {
+        last_job_id: Arc<Mutex<String>>,
     }
 
-    pub struct SimplePlugin;
+    impl SimplePlugin {
+        fn record(&self, job_id: &str) {
+            *self.last_job_id.lock().expect("lock poisoned") = job_id.to_string();
+        }
+
+        /// Clones the value out so no guard is held across an assertion; a failing assert
+        /// would otherwise poison the mutex and cascade into the other tests.
+        fn last_job_id(&self) -> String {
+            self.last_job_id.lock().expect("lock poisoned").clone()
+        }
+    }
 
     #[async_trait]
     impl JobPlugin for SimplePlugin {
         async fn change_status(&self, job_id: &str, _status: JobStatus) {
-            if let Ok(job_id_ref) = JOB_ID.lock().as_mut() {
-                **job_id_ref = job_id.to_string();
-            }
+            self.record(job_id);
         }
 
         async fn before_run(&self, job_id: &str) {
-            if let Ok(job_id_ref) = JOB_ID.lock().as_mut() {
-                **job_id_ref = job_id.to_string();
-            }
+            self.record(job_id);
         }
 
         async fn after_run(&self, job_id: &str) {
-            if let Ok(job_id_ref) = JOB_ID.lock().as_mut() {
-                **job_id_ref = job_id.to_string();
-            }
+            self.record(job_id);
         }
     }
 
@@ -140,46 +153,68 @@ mod tests {
     fn test_should_run() {
         pub struct B;
         // Plugin apply for all Job
-        let plugin = JobPluginWrapper::new(SimplePlugin, vec![]);
+        let plugin = JobPluginWrapper::new(SimplePlugin::default(), vec![]);
         assert!(plugin.should_run(TypeId::of::<JobA>()));
         assert!(plugin.should_run(TypeId::of::<B>()));
 
         // Only run for specific registered type
-        let plugin_2 = JobPluginWrapper::new(SimplePlugin, vec![TypeId::of::<JobA>()]);
+        let plugin_2 = JobPluginWrapper::new(SimplePlugin::default(), vec![TypeId::of::<JobA>()]);
         assert!(plugin_2.should_run(TypeId::of::<JobA>()));
-        assert_eq!(plugin_2.should_run(TypeId::of::<B>()), false);
+        assert!(!plugin_2.should_run(TypeId::of::<B>()));
     }
 
     #[tokio::test]
     async fn test_change_status_hook() {
+        let plugin = SimplePlugin::default();
         // Plugin apply for all Job
-        let plugin = JobPluginWrapper::new(SimplePlugin, vec![]);
-        plugin
+        let wrapper = JobPluginWrapper::new(plugin.clone(), vec![]);
+        wrapper
             .change_status::<JobA>("job_status", JobStatus::Failed)
             .await;
 
-        assert_eq!(*JOB_ID.lock().unwrap(), "job_status");
+        assert_eq!(plugin.last_job_id(), "job_status");
     }
 
     #[tokio::test]
     async fn test_change_before_run() {
+        let plugin = SimplePlugin::default();
         // Plugin apply for all Job
-        let plugin = JobPluginWrapper::new(SimplePlugin, vec![]);
-        plugin
-            .change_status::<JobA>("job_before", JobStatus::Failed)
-            .await;
+        let wrapper = JobPluginWrapper::new(plugin.clone(), vec![]);
+        wrapper.before_run::<JobA>("job_before").await;
 
-        assert_eq!(*JOB_ID.lock().unwrap(), "job_before");
+        assert_eq!(plugin.last_job_id(), "job_before");
     }
 
     #[tokio::test]
     async fn test_change_after_run() {
+        let plugin = SimplePlugin::default();
         // Plugin apply for all Job
-        let plugin = JobPluginWrapper::new(SimplePlugin, vec![]);
-        plugin
-            .change_status::<JobA>("job_after", JobStatus::Failed)
-            .await;
+        let wrapper = JobPluginWrapper::new(plugin.clone(), vec![]);
+        wrapper.after_run::<JobA>("job_after").await;
 
-        assert_eq!(*JOB_ID.lock().unwrap(), "job_after");
+        assert_eq!(plugin.last_job_id(), "job_after");
+    }
+
+    #[tokio::test]
+    async fn test_hooks_skipped_for_unregistered_job_type() {
+        #[derive(Clone)]
+        struct JobB;
+
+        #[async_trait]
+        impl Executable for JobB {
+            type Output = ();
+
+            async fn execute(&mut self, _: &JobContext) {}
+        }
+
+        let plugin = SimplePlugin::default();
+        // Registered for JobA only, so JobB must not reach the hook.
+        let wrapper = JobPluginWrapper::new(plugin.clone(), vec![TypeId::of::<Job<JobA>>()]);
+
+        wrapper.before_run::<JobB>("job_b").await;
+        assert_eq!(plugin.last_job_id(), "");
+
+        wrapper.before_run::<JobA>("job_a").await;
+        assert_eq!(plugin.last_job_id(), "job_a");
     }
 }

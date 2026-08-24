@@ -509,7 +509,7 @@ where
     actor_ref
         .ask(Enqueue(job, config))
         .await
-        .map_err(|e| Error::from(e))
+        .map_err(Error::from)
 }
 
 // Message: CancelJob
@@ -540,7 +540,7 @@ where
     actor_ref
         .ask(CancelJob { job_id })
         .await
-        .map_err(|e| Error::from(e))
+        .map_err(Error::from)
 }
 
 // Message: GetJob
@@ -612,7 +612,7 @@ where
         job_id: job_id.to_string(),
         _phantom: PhantomData,
     };
-    actor_ref.ask(msg).await.map_err(|e| Error::from(e))
+    actor_ref.ask(msg).await.map_err(Error::from)
 }
 
 // Message: UpdateWorkQueue
