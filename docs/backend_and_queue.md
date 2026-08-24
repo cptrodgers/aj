@@ -87,6 +87,36 @@ AJ uses a three-queue pattern inspired by industry best practices (Sidekiq, Bull
 | Active | `Vec<String>` | Currently processing |
 | Storage | `HashMap<String, String>` | job_id → job_data |
 
+### Postgres Implementation
+
+Rather than four separate structures, all three queues plus storage live in one row per
+`(queue, job_id)`, distinguished by a `state` column. Table names carry a configurable
+prefix (default `aj_`).
+
+| Queue | Representation | Description |
+|-------|----------------|-------------|
+| Delayed | `aj_job_queue` where `state = 'delayed'` | `ready_at_ms` = run_at timestamp (ms) |
+| Waiting | `aj_job_queue` where `state = 'waiting'` | FIFO via `ORDER BY ready_at_ms, seq` |
+| Active | `aj_job_queue` where `state = 'active'` | Currently processing |
+| Storage | `aj_job_queue.payload` | Job JSON, as `TEXT` |
+| Locks | `aj_job_lock` | `job_id` → worker_id + `expires_at_ms` |
+
+Two consequences of the single-table shape:
+
+- `state IS NULL` means the row exists but belongs to no queue — the equivalent of a job in
+  Redis' storage hash but absent from all three lists. This is what a completed job leaves
+  behind.
+- `payload` is nullable, because the trait permits pushing a job id that was never
+  `job_save`d.
+
+`aj_job_lock` is keyed on `job_id` alone, deliberately **not** queue-scoped, mirroring
+Redis' `aj:lock:{job_id}`. It has no foreign key to `aj_job_queue`, so `lock_acquire` works
+for a job that has no row at all.
+
+Because Postgres has no TTL eviction, lock expiry is a predicate on `expires_at_ms` rather
+than something the server does for you. Every read of a lock is guarded by
+`expires_at_ms > now`, and `purge_expired_locks(grace_ms)` reclaims the dead rows.
+
 ## Backend Trait
 
 To implement a custom backend, implement the `Backend` trait:
@@ -130,59 +160,61 @@ pub trait Backend: Send + Sync {
 
 ## Implementing a Custom Backend
 
-### Example: PostgreSQL Backend
+### Built-in: the Postgres backend
 
-```rust
-use aj_core::{Backend, Error};
+Postgres is implemented in-tree at `aj_core/src/backend/postgres.rs`, behind the `postgres`
+feature — read it as the reference for a SQL-backed implementation. The parts worth copying:
 
-pub struct PostgresBackend {
-    pool: PgPool,
-}
+**Atomic claim, with `FOR UPDATE SKIP LOCKED` in place of a Lua script.** One statement
+picks the FIFO-head waiting row, takes the lock, and flips the row to `active`. If the lock
+is held by a live worker the middle CTE returns nothing, the `UPDATE` matches nothing, and
+the row stays `waiting` — the same put-back branch as `LUA_CLAIM_JOB`.
 
-impl Backend for PostgresBackend {
-    fn waiting_push(&self, queue: &str, job_id: &str) -> Result<(), Error> {
-        // INSERT INTO waiting_queue (queue_name, job_id, created_at)
-        // VALUES ($1, $2, NOW())
-        todo!()
-    }
-
-    fn waiting_pop(&self, queue: &str) -> Result<Option<String>, Error> {
-        // DELETE FROM waiting_queue
-        // WHERE id = (SELECT id FROM waiting_queue WHERE queue_name = $1 ORDER BY created_at LIMIT 1)
-        // RETURNING job_id
-        todo!()
-    }
-
-    fn delayed_push(&self, queue: &str, job_id: &str, run_at_ms: i64) -> Result<(), Error> {
-        // INSERT INTO delayed_queue (queue_name, job_id, run_at)
-        // VALUES ($1, $2, to_timestamp($3 / 1000.0))
-        todo!()
-    }
-
-    fn delayed_move_ready(&self, queue: &str, now_ms: i64) -> Result<usize, Error> {
-        // WITH moved AS (
-        //     DELETE FROM delayed_queue
-        //     WHERE queue_name = $1 AND run_at <= to_timestamp($2 / 1000.0)
-        //     RETURNING job_id
-        // )
-        // INSERT INTO waiting_queue (queue_name, job_id, created_at)
-        // SELECT $1, job_id, NOW() FROM moved
-        todo!()
-    }
-
-    fn claim_job(&self, queue: &str, worker_id: &str, lock_ttl_ms: u64) -> Result<Option<String>, Error> {
-        // Use advisory locks or SELECT FOR UPDATE SKIP LOCKED
-        // BEGIN;
-        // SELECT job_id FROM waiting_queue WHERE queue_name = $1 FOR UPDATE SKIP LOCKED LIMIT 1;
-        // DELETE FROM waiting_queue WHERE job_id = $2;
-        // INSERT INTO active_queue (queue_name, job_id, worker_id, locked_until) VALUES (...);
-        // COMMIT;
-        todo!()
-    }
-
-    // ... implement remaining methods
-}
+```sql
+WITH picked AS MATERIALIZED (
+    SELECT job_id FROM aj_job_queue
+    WHERE queue = $1::text AND state = 'waiting'
+    ORDER BY ready_at_ms, seq
+    LIMIT 1
+    FOR UPDATE SKIP LOCKED
+), locked AS (
+    INSERT INTO aj_job_lock (job_id, worker_id, expires_at_ms)
+    SELECT job_id, $2::text, $3::bigint FROM picked
+    ON CONFLICT (job_id) DO UPDATE
+        SET worker_id = EXCLUDED.worker_id, expires_at_ms = EXCLUDED.expires_at_ms
+        WHERE aj_job_lock.expires_at_ms <= $4::bigint
+    RETURNING aj_job_lock.job_id
+)
+UPDATE aj_job_queue q SET state = 'active', worker_id = $2::text
+WHERE q.queue = $1::text AND q.state = 'waiting'
+  AND q.job_id IN (SELECT job_id FROM locked)
+RETURNING q.job_id;
 ```
+
+**Lock ordering.** Every statement touches `aj_job_queue` before `aj_job_lock`, with no
+exceptions, which is what rules out a deadlock cycle. `complete_job`/`fail_job` therefore use
+an explicit transaction rather than a data-modifying CTE — CTE sub-statements have no
+guaranteed execution order, so the lock order would become nondeterministic.
+
+**The synchronous-trait problem.** `Backend` is sync, but the engine calls it from inside
+async message handlers. The blocking `postgres` crate wraps `tokio-postgres` and calls
+`Runtime::block_on` internally, which panics with *"Cannot start a runtime from within a
+runtime"* when that happens on a runtime thread. `tokio::task::block_in_place` fixes it on a
+multi-thread runtime but panics on a `current_thread` one. The backend therefore owns a
+small pool of OS threads, hands every query to them, and blocks the caller on a plain std
+channel — safe from any context. Any sync SQL backend added later will hit the same wall.
+
+**Ordering without a list.** `(ready_at_ms, seq)` stands in for Redis list order: `seq`
+comes from a prefixed sequence and breaks ties within the same millisecond, so re-pushing a
+job assigns a fresh `ready_at_ms` *and* `seq` to move it to the back. Because
+`delayed_push` writes `run_at` into the same `ready_at_ms` column, `delayed_move_ready` is a
+plain `UPDATE ... SET state = 'waiting'` with no per-row sequencing.
+
+**Guard every transition.** With one `state` column, an unguarded `SET state = NULL` would
+clobber unrelated membership — `cancel_job` calls `delayed_remove` for jobs that may be
+sitting in `waiting`. Every removal carries `AND state = '<expected>'`.
+
+### Writing your own
 
 ### Key Implementation Considerations
 
@@ -249,15 +281,14 @@ Maintain job ordering in waiting queue:
 
 ## Backend Comparison
 
-| Feature | InMemory | Redis | PostgreSQL* |
-|---------|----------|-------|-------------|
+| Feature | InMemory | Redis | Postgres |
+|---------|----------|-------|----------|
+| Feature flag | none (default) | `redis` | `postgres` |
 | Persistence | No | Optional | Yes |
 | Distributed | No | Yes | Yes |
-| Atomic ops | Mutex | Lua scripts | Transactions |
+| Atomic ops | Mutex | Lua scripts | `FOR UPDATE SKIP LOCKED` |
 | Performance | Fastest | Fast | Moderate |
 | Scaling | Single process | Multi-process | Multi-process |
-
-*PostgreSQL backend not included, shown as implementation example.
 
 ## WorkQueue Flow
 

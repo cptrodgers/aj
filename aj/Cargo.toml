@@ -16,6 +16,7 @@ name = "aj"
 [features]
 default = []
 redis = ["aj_core/redis"]
+postgres = ["aj_core/postgres"]
 
 [dependencies]
 aj_macro = { version = "=0.8.0", path = "../aj_macro" }

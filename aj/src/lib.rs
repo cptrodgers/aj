@@ -38,10 +38,15 @@
 //! # Feature Flags
 //!
 //! - `redis` - Enables Redis backend support for production use with persistence
+//! - `postgres` - Enables Postgres backend support, for deployments that already run
+//!   Postgres and would rather not add Redis
 //!
 //! ```toml
 //! # Enable Redis backend
-//! aj = { version = "0.7.2", features = ["redis"] }
+//! aj = { version = "0.8.0", features = ["redis"] }
+//!
+//! # Or the Postgres backend
+//! aj = { version = "0.8.0", features = ["postgres"] }
 //! ```
 //!
 //! # Using Redis Backend
@@ -55,11 +60,25 @@
 //! AJ::start(Redis::new("redis://localhost:6379"));
 //! ```
 //!
+//! # Using Postgres Backend
+//!
+//! When the `postgres` feature is enabled. The tables are created on startup if they do
+//! not exist, all prefixed with `aj_`:
+//!
+//! ```ignore
+//! use aj::postgres::Postgres;
+//! use aj::AJ;
+//!
+//! AJ::start(Postgres::new("postgres://postgres:postgres@localhost:5432/mydb"));
+//! ```
+//!
 //! [More examples](https://github.com/cptrodgers/aj/tree/master/aj/examples)
 //! [Features](https://github.com/cptrodgers/aj/?tab=readme-ov-file#features)
 //!
 pub use aj_core::backend;
 pub use aj_core::backend::mem;
+#[cfg(feature = "postgres")]
+pub use aj_core::backend::postgres;
 #[cfg(feature = "redis")]
 pub use aj_core::backend::redis;
 pub use aj_core::job;
