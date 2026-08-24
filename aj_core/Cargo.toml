@@ -20,7 +20,9 @@ redis = ["dep:redis"]
 
 [dependencies]
 uuid = { version = "1.8", features = ["serde", "v4"] }
-redis = { version = "0.25.3", optional = true }
+# tokio-comp brings in `aio`; `aio` alone lacks tokio/net. Default features are kept
+# because `script` lives there and gates `Script`, which the Lua call sites need.
+redis = { version = "0.25.3", optional = true, features = ["tokio-comp", "connection-manager"] }
 cron = "0.12.0"
 kameo = "0.13"
 serde = { version = "1.0.64", features = ["derive"] }
@@ -32,3 +34,8 @@ lazy_static = { version = "1.4.0" }
 async-trait = "0.1.74"
 dashmap = "5.5.3"
 tokio = { version = "1.23.1", features = ["sync", "time"] }
+
+[dev-dependencies]
+# `#[tokio::test]` needs macros + rt. These arrive transitively via kameo today, but
+# relying on another crate's feature selection for our own test harness is fragile.
+tokio = { version = "1.23.1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }

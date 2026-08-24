@@ -347,12 +347,15 @@ you can implement the `Backend` trait and then use it in AJ.
 See [Backend and Queue Design](docs/backend_and_queue.md) for the full implementation guide.
 
 ```rust
+use aj::async_trait;
+
 pub struct YourBackend {
     // ...
 }
 
+#[async_trait]
 impl Backend for YourBackend {
-    // Implement required methods...
+    // Implement required methods, all `async fn`...
 }
 
 // Use your custom backend

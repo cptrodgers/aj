@@ -89,42 +89,44 @@ AJ uses a three-queue pattern inspired by industry best practices (Sidekiq, Bull
 
 ## Backend Trait
 
-To implement a custom backend, implement the `Backend` trait:
+To implement a custom backend, implement the `Backend` trait. It is asynchronous, so use
+`#[async_trait]` (re-exported as `aj::async_trait`) and make every method an `async fn`:
 
 ```rust
+#[async_trait]
 pub trait Backend: Send + Sync {
     // Waiting Queue (ready to process)
-    fn waiting_push(&self, queue: &str, job_id: &str) -> Result<(), Error>;
-    fn waiting_pop(&self, queue: &str) -> Result<Option<String>, Error>;
-    fn waiting_len(&self, queue: &str) -> Result<usize, Error>;
+    async fn waiting_push(&self, queue: &str, job_id: &str) -> Result<(), Error>;
+    async fn waiting_pop(&self, queue: &str) -> Result<Option<String>, Error>;
+    async fn waiting_len(&self, queue: &str) -> Result<usize, Error>;
 
     // Delayed Queue (scheduled for future)
-    fn delayed_push(&self, queue: &str, job_id: &str, run_at_ms: i64) -> Result<(), Error>;
-    fn delayed_move_ready(&self, queue: &str, now_ms: i64) -> Result<usize, Error>;
-    fn delayed_remove(&self, queue: &str, job_id: &str) -> Result<(), Error>;
-    fn delayed_len(&self, queue: &str) -> Result<usize, Error>;
+    async fn delayed_push(&self, queue: &str, job_id: &str, run_at_ms: i64) -> Result<(), Error>;
+    async fn delayed_move_ready(&self, queue: &str, now_ms: i64) -> Result<usize, Error>;
+    async fn delayed_remove(&self, queue: &str, job_id: &str) -> Result<(), Error>;
+    async fn delayed_len(&self, queue: &str) -> Result<usize, Error>;
 
     // Active Queue (currently processing)
-    fn active_push(&self, queue: &str, job_id: &str) -> Result<(), Error>;
-    fn active_remove(&self, queue: &str, job_id: &str) -> Result<(), Error>;
-    fn active_len(&self, queue: &str) -> Result<usize, Error>;
-    fn active_list(&self, queue: &str) -> Result<Vec<String>, Error>;
+    async fn active_push(&self, queue: &str, job_id: &str) -> Result<(), Error>;
+    async fn active_remove(&self, queue: &str, job_id: &str) -> Result<(), Error>;
+    async fn active_len(&self, queue: &str) -> Result<usize, Error>;
+    async fn active_list(&self, queue: &str) -> Result<Vec<String>, Error>;
 
     // Job Storage
-    fn job_save(&self, queue: &str, job_id: &str, data: &str) -> Result<(), Error>;
-    fn job_get(&self, queue: &str, job_id: &str) -> Result<Option<String>, Error>;
-    fn job_delete(&self, queue: &str, job_id: &str) -> Result<(), Error>;
+    async fn job_save(&self, queue: &str, job_id: &str, data: &str) -> Result<(), Error>;
+    async fn job_get(&self, queue: &str, job_id: &str) -> Result<Option<String>, Error>;
+    async fn job_delete(&self, queue: &str, job_id: &str) -> Result<(), Error>;
 
     // Distributed Locking (optional - has default impl)
-    fn lock_acquire(&self, job_id: &str, worker_id: &str, ttl_ms: u64) -> Result<bool, Error>;
-    fn lock_release(&self, job_id: &str, worker_id: &str) -> Result<bool, Error>;
-    fn lock_extend(&self, job_id: &str, worker_id: &str, ttl_ms: u64) -> Result<bool, Error>;
+    async fn lock_acquire(&self, job_id: &str, worker_id: &str, ttl_ms: u64) -> Result<bool, Error>;
+    async fn lock_release(&self, job_id: &str, worker_id: &str) -> Result<bool, Error>;
+    async fn lock_extend(&self, job_id: &str, worker_id: &str, ttl_ms: u64) -> Result<bool, Error>;
 
     // Atomic Operations (optional - has default impl)
-    fn claim_job(&self, queue: &str, worker_id: &str, lock_ttl_ms: u64) -> Result<Option<String>, Error>;
-    fn complete_job(&self, queue: &str, job_id: &str, worker_id: &str) -> Result<bool, Error>;
-    fn fail_job(&self, queue: &str, job_id: &str, worker_id: &str) -> Result<bool, Error>;
-    fn requeue_orphaned(&self, queue: &str) -> Result<Vec<String>, Error>;
+    async fn claim_job(&self, queue: &str, worker_id: &str, lock_ttl_ms: u64) -> Result<Option<String>, Error>;
+    async fn complete_job(&self, queue: &str, job_id: &str, worker_id: &str) -> Result<bool, Error>;
+    async fn fail_job(&self, queue: &str, job_id: &str, worker_id: &str) -> Result<bool, Error>;
+    async fn requeue_orphaned(&self, queue: &str) -> Result<Vec<String>, Error>;
 }
 ```
 
@@ -139,27 +141,28 @@ pub struct PostgresBackend {
     pool: PgPool,
 }
 
+#[async_trait]
 impl Backend for PostgresBackend {
-    fn waiting_push(&self, queue: &str, job_id: &str) -> Result<(), Error> {
+    async fn waiting_push(&self, queue: &str, job_id: &str) -> Result<(), Error> {
         // INSERT INTO waiting_queue (queue_name, job_id, created_at)
         // VALUES ($1, $2, NOW())
         todo!()
     }
 
-    fn waiting_pop(&self, queue: &str) -> Result<Option<String>, Error> {
+    async fn waiting_pop(&self, queue: &str) -> Result<Option<String>, Error> {
         // DELETE FROM waiting_queue
         // WHERE id = (SELECT id FROM waiting_queue WHERE queue_name = $1 ORDER BY created_at LIMIT 1)
         // RETURNING job_id
         todo!()
     }
 
-    fn delayed_push(&self, queue: &str, job_id: &str, run_at_ms: i64) -> Result<(), Error> {
+    async fn delayed_push(&self, queue: &str, job_id: &str, run_at_ms: i64) -> Result<(), Error> {
         // INSERT INTO delayed_queue (queue_name, job_id, run_at)
         // VALUES ($1, $2, to_timestamp($3 / 1000.0))
         todo!()
     }
 
-    fn delayed_move_ready(&self, queue: &str, now_ms: i64) -> Result<usize, Error> {
+    async fn delayed_move_ready(&self, queue: &str, now_ms: i64) -> Result<usize, Error> {
         // WITH moved AS (
         //     DELETE FROM delayed_queue
         //     WHERE queue_name = $1 AND run_at <= to_timestamp($2 / 1000.0)
@@ -170,7 +173,7 @@ impl Backend for PostgresBackend {
         todo!()
     }
 
-    fn claim_job(&self, queue: &str, worker_id: &str, lock_ttl_ms: u64) -> Result<Option<String>, Error> {
+    async fn claim_job(&self, queue: &str, worker_id: &str, lock_ttl_ms: u64) -> Result<Option<String>, Error> {
         // Use advisory locks or SELECT FOR UPDATE SKIP LOCKED
         // BEGIN;
         // SELECT job_id FROM waiting_queue WHERE queue_name = $1 FOR UPDATE SKIP LOCKED LIMIT 1;
@@ -234,7 +237,7 @@ const LUA_LOCK_RELEASE: &str = r#"
 Handle crashed workers by requeuing orphaned jobs:
 
 ```rust
-fn requeue_orphaned(&self, queue: &str) -> Result<Vec<String>, Error> {
+async fn requeue_orphaned(&self, queue: &str) -> Result<Vec<String>, Error> {
     // Find jobs in active queue without valid locks
     // Move them back to waiting queue
 }
