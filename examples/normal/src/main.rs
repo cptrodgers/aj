@@ -7,12 +7,20 @@ pub mod retry_job;
 pub mod schedule_job;
 pub mod update_job;
 
-use aj::{redis::Redis, AJ};
+use aj::{postgres::Postgres, redis::Redis, AJ};
 use plugin::SamplePlugin;
 
 #[allow(dead_code)]
 fn run_aj_redis_engine() {
     AJ::start(Redis::new("redis://localhost:6379"));
+}
+
+#[allow(dead_code)]
+fn run_aj_postgres_engine() {
+    // Tables are created on first use if they do not exist.
+    AJ::start(Postgres::new(
+        "postgres://postgres:postgres@localhost:5432/aj_test",
+    ));
 }
 
 #[tokio::main]
@@ -22,6 +30,8 @@ async fn main() {
     AJ::register_plugin(SamplePlugin).await.unwrap();
     // Or, run AJ engine with redis, un comment code below to test
     // run_aj_redis_engine();
+    // Or with postgres:
+    // run_aj_postgres_engine();
 
     // Simple job, declare by macro
     macro_job::run().await;
