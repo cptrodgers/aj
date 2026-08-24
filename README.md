@@ -9,7 +9,7 @@ It runs on pure Tokio runtime using the Kameo actor framework.
 ## Install
 
 ```toml
-aj = "0.8.0"
+aj = "0.9.0"
 serde = { version = "1.0.64", features = ["derive"] } # Serialize and deserialize the job
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] } # Async runtime
 ```
@@ -19,7 +19,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] } # Async runt
 By default, AJ uses an in-memory backend. To use Redis as the backend, enable the `redis` feature:
 
 ```toml
-aj = { version = "0.8.0", features = ["redis"] }
+aj = { version = "0.9.0", features = ["redis"] }
 ```
 
 ## Quick start
@@ -330,7 +330,7 @@ AJ::start(InMemory::default());
 For production use with persistence and multi-instance support, enable the `redis` feature:
 
 ```toml
-aj = { version = "0.8.0", features = ["redis"] }
+aj = { version = "0.9.0", features = ["redis"] }
 ```
 
 ```rust
@@ -347,12 +347,15 @@ you can implement the `Backend` trait and then use it in AJ.
 See [Backend and Queue Design](docs/backend_and_queue.md) for the full implementation guide.
 
 ```rust
+use aj::async_trait;
+
 pub struct YourBackend {
     // ...
 }
 
+#[async_trait]
 impl Backend for YourBackend {
-    // Implement required methods...
+    // Implement required methods, all `async fn`...
 }
 
 // Use your custom backend
