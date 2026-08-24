@@ -41,7 +41,7 @@
 //!
 //! ```toml
 //! # Enable Redis backend
-//! aj = { version = "0.9.0", features = ["redis"] }
+//! aj = { version = "0.8.0", features = ["redis"] }
 //! ```
 //!
 //! # Using Redis Backend
