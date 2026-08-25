@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.1 - 2026-08-25
 
 ### Added
 
@@ -51,6 +51,13 @@
   ```
 
   `rustls` is re-exported as `aj::postgres::rustls` so the version cannot skew.
+
+### Changed
+
+- Dependency bumps: tokio 1.35.0 -> 1.43.1, time 0.3.36 -> 0.3.55, hashbrown 0.15.0 -> 0.15.5.
+
+**Upgrading from 0.9.0:** nothing to do. Both additions are new opt-in features; no existing
+API changed.
 
 ## 0.9.0
 

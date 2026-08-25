@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
 //! Aj is a simple, flexible, and feature-rich background job processing library for Rust.
 //!
 //! # Quick Start
@@ -45,13 +46,13 @@
 //!
 //! ```toml
 //! # Enable Redis backend
-//! aj = { version = "0.9.0", features = ["redis"] }
+//! aj = { version = "0.9.1", features = ["redis"] }
 //!
 //! # Or the Postgres backend
-//! aj = { version = "0.9.0", features = ["postgres"] }
+//! aj = { version = "0.9.1", features = ["postgres"] }
 //!
 //! # Postgres over TLS
-//! aj = { version = "0.9.0", features = ["postgres-tls"] }
+//! aj = { version = "0.9.1", features = ["postgres-tls"] }
 //! ```
 //!
 //! # Using Redis Backend
@@ -98,8 +99,10 @@
 pub use aj_core::backend;
 pub use aj_core::backend::mem;
 #[cfg(feature = "postgres")]
+#[cfg_attr(docsrs, doc(cfg(feature = "postgres")))]
 pub use aj_core::backend::postgres;
 #[cfg(feature = "redis")]
+#[cfg_attr(docsrs, doc(cfg(feature = "redis")))]
 pub use aj_core::backend::redis;
 pub use aj_core::job;
 pub use aj_core::plugin::*;

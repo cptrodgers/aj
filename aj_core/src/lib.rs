@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(clippy::field_reassign_with_default)]
 
 #[macro_use]

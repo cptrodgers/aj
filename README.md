@@ -9,7 +9,7 @@ It runs on pure Tokio runtime using the Kameo actor framework.
 ## Install
 
 ```toml
-aj = "0.9.0"
+aj = "0.9.1"
 serde = { version = "1.0.64", features = ["derive"] } # Serialize and deserialize the job
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] } # Async runtime
 ```
@@ -21,11 +21,11 @@ matching feature. Use `postgres-tls` rather than `postgres` if the database is n
 localhost:
 
 ```toml
-aj = { version = "0.9.0", features = ["redis"] }
+aj = { version = "0.9.1", features = ["redis"] }
 # or
-aj = { version = "0.9.0", features = ["postgres"] }
+aj = { version = "0.9.1", features = ["postgres"] }
 # Postgres over TLS, which every managed provider requires
-aj = { version = "0.9.0", features = ["postgres-tls"] }
+aj = { version = "0.9.1", features = ["postgres-tls"] }
 ```
 
 ## Quick start
@@ -340,7 +340,7 @@ AJ::start(InMemory::default());
 For production use with persistence and multi-instance support, enable the `redis` feature:
 
 ```toml
-aj = { version = "0.9.0", features = ["redis"] }
+aj = { version = "0.9.1", features = ["redis"] }
 ```
 
 ```rust
@@ -355,7 +355,7 @@ For deployments that already run Postgres and would rather not add Redis, enable
 `postgres` feature:
 
 ```toml
-aj = { version = "0.9.0", features = ["postgres"] }
+aj = { version = "0.9.1", features = ["postgres"] }
 ```
 
 ```rust
@@ -391,7 +391,7 @@ job payloads. Every managed provider â€” RDS, Neon, Supabase, Cloud SQL, Azure â
 Enable `postgres-tls` and `sslmode` in the URL does the rest:
 
 ```toml
-aj = { version = "0.9.0", features = ["postgres-tls"] }
+aj = { version = "0.9.1", features = ["postgres-tls"] }
 ```
 
 ```rust

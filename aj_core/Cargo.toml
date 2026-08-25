@@ -1,6 +1,6 @@
 [package]
 name = "aj_core"
-version = "0.9.0"
+version = "0.9.1"
 edition = "2021"
 authors = ["cptrodgers <me@cptrodgers.com>"]
 description = "Background Job Library for Rust"
@@ -9,6 +9,14 @@ repository = "https://github.com/cptrodgers/aj"
 license = "MIT OR Apache-2.0"
 keywords = ["background-job", "cron", "schedule", "interval"]
 include = ["**/*.rs", "Cargo.toml"]
+
+[package.metadata.docs.rs]
+# Deliberately not `all-features = true`: that would pull in redis 0.25.4, which no longer
+# compiles on recent nightlies (it relies on the old `!` type fallback, and docs.rs builds
+# with nightly), taking the whole docs build down with it. Listing features explicitly keeps
+# the Postgres backend documented. Restore `all-features` once the redis dep is upgraded.
+features = ["postgres-tls"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
 name = "aj_core"
