@@ -17,12 +17,15 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] } # Async runt
 ### Enable a Persistent Backend
 
 By default, AJ uses an in-memory backend. To use Redis or Postgres instead, enable the
-matching feature:
+matching feature. Use `postgres-tls` rather than `postgres` if the database is not on
+localhost:
 
 ```toml
 aj = { version = "0.9.0", features = ["redis"] }
 # or
 aj = { version = "0.9.0", features = ["postgres"] }
+# Postgres over TLS, which every managed provider requires
+aj = { version = "0.9.0", features = ["postgres-tls"] }
 ```
 
 ## Quick start
@@ -376,6 +379,60 @@ let backend = Postgres::builder("postgres://localhost/mydb")
 
 // The DDL, if you would rather apply it as a migration:
 println!("{}", Postgres::schema_sql("myapp_aj_")?);
+```
+
+##### TLS
+
+`postgres` on its own connects in plaintext. That is fine for a database on localhost or
+inside a private network, but it means `sslmode=require` cannot connect at all, and the
+`sslmode=prefer` default **silently falls back to an unencrypted connection** carrying your
+job payloads. Every managed provider — RDS, Neon, Supabase, Cloud SQL, Azure — mandates TLS.
+
+Enable `postgres-tls` and `sslmode` in the URL does the rest:
+
+```toml
+aj = { version = "0.9.0", features = ["postgres-tls"] }
+```
+
+```rust
+use aj::postgres::Postgres;
+
+AJ::start(Postgres::new(
+    "postgres://user:pw@db.example.com:5432/mydb?sslmode=require",
+));
+```
+
+By default this trusts the operating system's certificate store, falling back to the bundled
+Mozilla roots when there is no system store at all (scratch and distroless images).
+
+**Verification is stricter than libpq.** Under `psql`, `sslmode=require` means "encrypt, do
+not verify"; rustls always verifies the server certificate. A server using a private CA or a
+self-signed certificate that `psql` connects to happily will be **rejected** here. Two other
+requirements that trip up hand-rolled certificates: the certificate needs a `subjectAltName`
+(rustls does not fall back to the Common Name), and the server certificate must not be marked
+`CA:TRUE` — use a CA plus a leaf signed by it, not one self-signed certificate.
+
+To trust a private CA, pin a self-signed certificate, or do client-certificate mTLS, pass
+your own `rustls` configuration. `rustls` is re-exported so its version always matches:
+
+```rust
+use aj::postgres::{rustls, Postgres};
+use aj::postgres::rustls::pki_types::{pem::PemObject, CertificateDer};
+
+let mut roots = rustls::RootCertStore::empty();
+for cert in CertificateDer::pem_file_iter("/etc/ssl/my-ca.crt")? {
+    roots.add(cert?)?;
+}
+
+let backend = Postgres::builder("postgres://user:pw@db.internal:5432/mydb?sslmode=require")
+    .tls_config(
+        rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth(),
+    )
+    .build()?;
+
+AJ::start(backend);
 ```
 
 Two operational notes:

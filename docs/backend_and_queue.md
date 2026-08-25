@@ -282,7 +282,7 @@ Maintain job ordering in waiting queue:
 
 | Feature | InMemory | Redis | Postgres |
 |---------|----------|-------|----------|
-| Feature flag | none (default) | `redis` | `postgres` |
+| Feature flag | none (default) | `redis` | `postgres`, or `postgres-tls` for TLS |
 | Persistence | No | Optional | Yes |
 | Distributed | No | Yes | Yes |
 | Atomic ops | Mutex | Lua scripts | `FOR UPDATE SKIP LOCKED` |

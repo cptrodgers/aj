@@ -8,15 +8,32 @@
 //!
 //! Atomic claiming uses `SELECT ... FOR UPDATE SKIP LOCKED` where the Redis backend uses
 //! Lua scripts.
+//!
+//! # TLS
+//!
+//! Without the `postgres-tls` feature the pool is built with `NoTls`, which means
+//! `sslmode=require` cannot connect at all and the `sslmode=prefer` default silently falls
+//! back to plaintext. Enable `postgres-tls` to get a rustls connector; from there `sslmode`
+//! in the connection URL behaves as libpq users expect.
 
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use deadpool_postgres::tokio_postgres::{Config as PgConfig, NoTls};
+use deadpool_postgres::tokio_postgres::Config as PgConfig;
+#[cfg(not(feature = "postgres-tls"))]
+use deadpool_postgres::tokio_postgres::NoTls;
 use deadpool_postgres::{Client, Manager, ManagerConfig, Pool, RecyclingMethod, Runtime};
 use tokio::sync::OnceCell;
+
+#[cfg(feature = "postgres-tls")]
+use tokio_postgres_rustls::MakeRustlsConnect;
+
+/// Re-exported so callers building a [`PostgresBuilder::tls_config`] cannot end up on a
+/// different `rustls` than the one this backend was compiled against.
+#[cfg(feature = "postgres-tls")]
+pub use rustls;
 
 use crate::types::Backend;
 use crate::{get_now_as_ms, Error};
@@ -69,7 +86,18 @@ const STATE_ACTIVE: &str = "active";
 ///
 /// `Pool` is lazy: building it opens no sockets, which is what lets `new` stay synchronous
 /// like [`crate::backend::redis::Redis::new`]. The schema bootstrap does need a connection,
-/// so it runs once on first use rather than during construction.
+/// so it runs once on first use rather than during construction. Under `postgres-tls`,
+/// building does read the OS trust store, which is blocking *file* I/O - still no sockets,
+/// but not free either. Pass [`PostgresBuilder::tls_config`] to skip that read.
+///
+/// # TLS
+///
+/// With the `postgres-tls` feature the pool uses rustls and `sslmode` in the URL selects the
+/// behaviour, so `postgres://.../db?sslmode=require` is all most deployments need. Note that
+/// rustls **always verifies the server certificate**, which is stricter than libpq: there,
+/// `sslmode=require` means "encrypt, do not verify". A self-signed or private-CA server that
+/// `psql` accepts will therefore be rejected here unless you supply the CA through
+/// [`PostgresBuilder::tls_config`].
 #[derive(Clone)]
 pub struct Postgres {
     pool: Pool,
@@ -111,6 +139,8 @@ impl Postgres {
             table_prefix: DEFAULT_TABLE_PREFIX.to_string(),
             pool_size: DEFAULT_POOL_SIZE,
             auto_migrate: true,
+            #[cfg(feature = "postgres-tls")]
+            tls_config: None,
         }
     }
 
@@ -176,6 +206,9 @@ pub struct PostgresBuilder {
     table_prefix: String,
     pool_size: usize,
     auto_migrate: bool,
+    /// `None` means "derive one from the system trust store", see [`default_tls_config`].
+    #[cfg(feature = "postgres-tls")]
+    tls_config: Option<rustls::ClientConfig>,
 }
 
 impl PostgresBuilder {
@@ -195,6 +228,30 @@ impl PostgresBuilder {
         self
     }
 
+    /// Override the rustls configuration used for the connection.
+    ///
+    /// The default trusts the system store (falling back to the bundled Mozilla roots) and
+    /// presents no client certificate, which covers every managed Postgres. Supply your own
+    /// to trust a private CA, to pin a self-signed server certificate, or to do client-cert
+    /// mTLS. `rustls` is re-exported as [`rustls`] so the version always matches.
+    ///
+    /// ```ignore
+    /// let mut roots = aj::postgres::rustls::RootCertStore::empty();
+    /// roots.add(my_ca_der)?;
+    /// let backend = Postgres::builder(url)
+    ///     .tls_config(
+    ///         aj::postgres::rustls::ClientConfig::builder()
+    ///             .with_root_certificates(roots)
+    ///             .with_no_client_auth(),
+    ///     )
+    ///     .build()?;
+    /// ```
+    #[cfg(feature = "postgres-tls")]
+    pub fn tls_config(mut self, config: rustls::ClientConfig) -> Self {
+        self.tls_config = Some(config);
+        self
+    }
+
     /// Whether to create the schema on first use. Default true.
     pub fn auto_migrate(mut self, auto_migrate: bool) -> Self {
         self.auto_migrate = auto_migrate;
@@ -209,13 +266,26 @@ impl PostgresBuilder {
         let pg_config = PgConfig::from_str(&self.url)
             .map_err(|e| Error::Postgres(format!("invalid Postgres url: {e}")))?;
 
-        let manager = Manager::from_config(
-            pg_config,
-            NoTls,
-            ManagerConfig {
-                recycling_method: RecyclingMethod::Fast,
-            },
-        );
+        let manager_config = ManagerConfig {
+            recycling_method: RecyclingMethod::Fast,
+        };
+
+        // `Manager` type-erases its connector into a `Box<dyn Connect>`, so both arms produce
+        // the same `Manager` and nothing downstream of here is cfg-dependent.
+        #[cfg(feature = "postgres-tls")]
+        let manager = {
+            let tls_config = match self.tls_config {
+                Some(config) => config,
+                None => default_tls_config()?,
+            };
+            Manager::from_config(
+                pg_config,
+                MakeRustlsConnect::new(tls_config),
+                manager_config,
+            )
+        };
+        #[cfg(not(feature = "postgres-tls"))]
+        let manager = Manager::from_config(pg_config, NoTls, manager_config);
 
         // Sync and lazy: no socket is opened here.
         let pool = Pool::builder(manager)
@@ -233,6 +303,39 @@ impl PostgresBuilder {
             migrated: Arc::new(OnceCell::new()),
         })
     }
+}
+
+/// The rustls configuration used when the caller does not supply one.
+///
+/// Deliberately built with an explicit provider rather than `ClientConfig::builder()`: that
+/// resolves rustls' *process-default* provider, which panics when some unrelated crate in the
+/// dependency tree has enabled both `ring` and `aws-lc-rs`. A job library should not have a
+/// panic mode that depends on what else the binary links.
+#[cfg(feature = "postgres-tls")]
+fn default_tls_config() -> Result<rustls::ClientConfig, Error> {
+    let mut roots = rustls::RootCertStore::empty();
+
+    // System store first: private and corporate CAs are the common case for self-hosted
+    // Postgres, and they are only ever in the OS store.
+    let native = rustls_native_certs::load_native_certs();
+    roots.add_parsable_certificates(native.certs);
+
+    // Scratch and distroless images have no trust store at all, so fall back to the bundled
+    // Mozilla roots. That is enough for every managed Postgres.
+    if roots.is_empty() {
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    }
+
+    if roots.is_empty() {
+        return Err(Error::Postgres(
+            "no TLS root certificates available; pass PostgresBuilder::tls_config".to_string(),
+        ));
+    }
+
+    rustls::ClientConfig::builder_with_provider(rustls::crypto::ring::default_provider().into())
+        .with_safe_default_protocol_versions()
+        .map(|builder| builder.with_root_certificates(roots).with_no_client_auth())
+        .map_err(|e| Error::Postgres(format!("failed to build rustls config: {e}")))
 }
 
 // ============================================================================
@@ -839,6 +942,12 @@ mod tests {
         Postgres::new(&url)
     }
 
+    /// Appends a query parameter to a Postgres URL that may already carry one.
+    fn with_param(url: &str, param: &str) -> String {
+        let sep = if url.contains('?') { '&' } else { '?' };
+        format!("{url}{sep}{param}")
+    }
+
     fn unique_queue() -> String {
         format!("test:{}", Uuid::new_v4())
     }
@@ -1219,5 +1328,119 @@ mod tests {
         assert!(ddl.contains("myapp_aj_job_lock"));
         assert!(ddl.contains("myapp_aj_job_queue_seq"));
         assert!(!ddl.contains(" aj_job_queue "));
+    }
+
+    // ========================================================================
+    // TLS
+    // ========================================================================
+
+    /// `sslmode=require` must never come back as a *successful* plaintext connection.
+    ///
+    /// This is the regression test for the silent downgrade: `tokio-postgres` defaults to
+    /// `SslMode::Prefer`, and `Prefer` against a connector that cannot do TLS quietly falls
+    /// back to an unencrypted socket. `Require` is the user saying "do not do that". It has
+    /// to fail here whichever way the crate was compiled - without `postgres-tls` because no
+    /// TLS implementation is configured, with it because the test server speaks no TLS.
+    ///
+    /// Assumes the test server is plaintext, which is how CI runs it.
+    #[tokio::test]
+    async fn test_sslmode_require_fails_without_server_tls() {
+        let base =
+            std::env::var("AJ_TEST_POSTGRES_URL").unwrap_or_else(|_| DEFAULT_TEST_URL.into());
+        let pg = Postgres::new(&with_param(&base, "sslmode=require"));
+
+        let result = pg.waiting_len(&unique_queue()).await;
+
+        assert!(
+            result.is_err(),
+            "sslmode=require connected to a server without TLS - the connection silently \
+             downgraded to plaintext"
+        );
+    }
+
+    /// A real TLS handshake against a server with `ssl=on`.
+    ///
+    /// Skipped unless both `AJ_TEST_POSTGRES_TLS_URL` and `AJ_TEST_POSTGRES_CA` are set,
+    /// because it needs a second Postgres holding a certificate. That is deliberately unlike
+    /// the rest of this suite, which hard-fails when no database is reachable: the plaintext
+    /// server is one `docker run` away, a TLS one is not.
+    #[cfg(feature = "postgres-tls")]
+    #[tokio::test]
+    async fn test_tls_connection() {
+        use rustls::pki_types::pem::PemObject;
+
+        let (Ok(url), Ok(ca_path)) = (
+            std::env::var("AJ_TEST_POSTGRES_TLS_URL"),
+            std::env::var("AJ_TEST_POSTGRES_CA"),
+        ) else {
+            eprintln!("skipping: AJ_TEST_POSTGRES_TLS_URL / AJ_TEST_POSTGRES_CA not set");
+            return;
+        };
+
+        let mut roots = rustls::RootCertStore::empty();
+        for cert in rustls::pki_types::CertificateDer::pem_file_iter(&ca_path)
+            .expect("failed to read AJ_TEST_POSTGRES_CA")
+        {
+            roots.add(cert.expect("malformed certificate")).unwrap();
+        }
+
+        let tls_config = rustls::ClientConfig::builder_with_provider(
+            rustls::crypto::ring::default_provider().into(),
+        )
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+
+        let pg = Postgres::builder(&url)
+            .tls_config(tls_config)
+            .build()
+            .unwrap();
+
+        // Ask the server itself whether the session is encrypted, rather than inferring it
+        // from the connection having succeeded.
+        let client = pg.client().await.unwrap();
+        let row = client
+            .query_one(
+                "SELECT ssl, version FROM pg_stat_ssl WHERE pid = pg_backend_pid()",
+                &[],
+            )
+            .await
+            .unwrap();
+        assert!(row.get::<_, bool>("ssl"), "connection is not encrypted");
+        let version: Option<&str> = row.get("version");
+        assert!(
+            version.is_some_and(|v| v.starts_with("TLSv1.")),
+            "unexpected: {version:?}"
+        );
+
+        // Then a normal round trip, to prove the schema bootstrap works over TLS too.
+        let queue = unique_queue();
+        let job = unique_job();
+        pg.waiting_push(&queue, &job).await.unwrap();
+        assert_eq!(pg.waiting_pop(&queue).await.unwrap(), Some(job.clone()));
+
+        cleanup(&pg, &queue, &[&job]).await;
+    }
+
+    /// The default configuration must reject a certificate it has no root for.
+    ///
+    /// rustls always verifies, so pointing it at a private-CA server without supplying that
+    /// CA has to fail. If this ever passes, verification has been turned off by accident.
+    #[cfg(feature = "postgres-tls")]
+    #[tokio::test]
+    async fn test_tls_rejects_untrusted_certificate() {
+        let Ok(url) = std::env::var("AJ_TEST_POSTGRES_TLS_URL") else {
+            eprintln!("skipping: AJ_TEST_POSTGRES_TLS_URL not set");
+            return;
+        };
+
+        // No `tls_config`, so this uses the system roots, which do not include the test CA.
+        let pg = Postgres::new(&url);
+
+        assert!(
+            pg.waiting_len(&unique_queue()).await.is_err(),
+            "a self-signed server certificate was accepted without its CA being trusted"
+        );
     }
 }

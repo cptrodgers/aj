@@ -21,6 +21,37 @@
   with `Postgres::schema_sql(prefix)` for teams that apply DDL out-of-band and
   `purge_expired_locks(grace_ms)` to reclaim locks left by crashed workers.
 
+- **TLS for the Postgres backend**, behind a new `postgres-tls` feature that implies
+  `postgres`:
+
+  ```toml
+  aj = { version = "0.9.0", features = ["postgres-tls"] }
+  ```
+
+  ```rust
+  AJ::start(Postgres::new("postgres://user:pw@db.example.com:5432/mydb?sslmode=require"));
+  ```
+
+  Without it the pool is built with `NoTls`, which means `sslmode=require` cannot connect at
+  all and the `sslmode=prefer` default **silently falls back to an unencrypted connection**.
+  That ruled out every managed provider — RDS, Neon, Supabase, Cloud SQL, Azure. With the
+  feature enabled, `sslmode` in the URL selects the behaviour as libpq users expect.
+
+  The default trusts the system certificate store and falls back to the bundled Mozilla roots
+  when there is no system store, so scratch and distroless images work unchanged.
+
+  **Verification is stricter than libpq.** rustls always verifies the server certificate,
+  where libpq's `sslmode=require` means "encrypt, do not verify". A private-CA or self-signed
+  server that `psql` accepts will be rejected. Also, rustls requires a `subjectAltName` rather
+  than falling back to the Common Name, and refuses a `CA:TRUE` certificate presented as the
+  server leaf. Supply your own configuration for those cases:
+
+  ```rust
+  Postgres::builder(url).tls_config(my_rustls_client_config).build()?
+  ```
+
+  `rustls` is re-exported as `aj::postgres::rustls` so the version cannot skew.
+
 ## 0.9.0
 
 ### Breaking
