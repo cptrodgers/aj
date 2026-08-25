@@ -18,6 +18,15 @@ name = "aj_core"
 default = []
 redis = ["dep:redis"]
 postgres = ["dep:deadpool-postgres"]
+# TLS for the Postgres backend. Separate from `postgres` because rustls, a crypto
+# provider and two root stores are a lot to hand someone who only talks to localhost.
+postgres-tls = [
+    "postgres",
+    "dep:tokio-postgres-rustls",
+    "dep:rustls",
+    "dep:rustls-native-certs",
+    "dep:webpki-roots",
+]
 
 [dependencies]
 uuid = { version = "1.8", features = ["serde", "v4"] }
@@ -27,6 +36,14 @@ redis = { version = "0.25.3", optional = true, features = ["tokio-comp", "connec
 # Re-exports tokio_postgres, and its default features already include rt_tokio_1, so this
 # single dependency covers both the driver and the pool.
 deadpool-postgres = { version = "0.14", optional = true }
+# Depends on tokio-postgres 0.7 and rustls 0.23, the same majors deadpool-postgres and
+# the direct rustls dep below resolve to, so cargo unifies them into one tree.
+tokio-postgres-rustls = { version = "0.14", optional = true, default-features = false }
+# Direct dep so `tls_config` can take a ClientConfig and we can re-export a version-matched
+# `rustls`. `ring` over `aws-lc-rs`: no cmake/nasm, cross-compiles cleanly.
+rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std"] }
+rustls-native-certs = { version = "0.8", optional = true }
+webpki-roots = { version = "1", optional = true }
 cron = "0.12.0"
 kameo = "0.13"
 serde = { version = "1.0.64", features = ["derive"] }

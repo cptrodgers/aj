@@ -37,6 +37,40 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+      # A TLS-enabled Postgres cannot be a `services:` entry: the certificate has to exist
+      # before the container starts, and services are brought up before any step runs.
+      - name: Start a TLS Postgres
+        run: |
+          set -eux
+          mkdir -p "$RUNNER_TEMP/pgcerts"
+          cd "$RUNNER_TEMP/pgcerts"
+
+          # A CA plus a leaf signed by it, not a single self-signed cert: rustls rejects a
+          # CA:TRUE certificate presented as an end entity (`CaUsedAsEndEntity`), and it
+          # requires a subjectAltName rather than falling back to the Common Name.
+          openssl req -x509 -nodes -newkey rsa:2048 -days 365 -subj '/CN=aj-test-ca' \
+            -keyout ca.key -out ca.crt
+          openssl req -nodes -newkey rsa:2048 -subj '/CN=localhost' \
+            -keyout server.key -out server.csr
+          printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost,IP:127.0.0.1\n' > leaf.ext
+          openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+            -days 365 -extfile leaf.ext -out server.crt
+
+          # Postgres refuses to start unless the key is 0600 and owned by the server user,
+          # which is uid 70 in the Alpine image.
+          docker volume create aj-certs
+          docker run --rm -v aj-certs:/certs -v "$PWD:/src:ro" alpine sh -c \
+            'cp /src/server.crt /src/server.key /certs/ && chown 70:70 /certs/server.* && chmod 600 /certs/server.key'
+
+          docker run -d --name aj-pg-tls \
+            -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=aj_test \
+            -p 5433:5432 -v aj-certs:/certs postgres:16-alpine \
+            -c ssl=on -c ssl_cert_file=/certs/server.crt -c ssl_key_file=/certs/server.key
+
+          for _ in $(seq 30); do
+            docker exec aj-pg-tls pg_isready -U postgres && break
+            sleep 2
+          done
       - name: Clippy
         run: cargo clippy --all-features -- -D warnings
       - name: Build
@@ -45,3 +79,5 @@ jobs:
         run: cargo test --workspace --all-features --verbose
         env:
           AJ_TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/aj_test
+          AJ_TEST_POSTGRES_TLS_URL: postgres://postgres:postgres@localhost:5433/aj_test?sslmode=require
+          AJ_TEST_POSTGRES_CA: ${{ runner.temp }}/pgcerts/ca.crt

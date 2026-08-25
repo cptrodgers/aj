@@ -40,6 +40,8 @@
 //! - `redis` - Enables Redis backend support for production use with persistence
 //! - `postgres` - Enables Postgres backend support, for deployments that already run
 //!   Postgres and would rather not add Redis
+//! - `postgres-tls` - Adds TLS to the Postgres backend, which every managed Postgres
+//!   (RDS, Neon, Supabase, Cloud SQL) requires. Implies `postgres`.
 //!
 //! ```toml
 //! # Enable Redis backend
@@ -47,6 +49,9 @@
 //!
 //! # Or the Postgres backend
 //! aj = { version = "0.9.0", features = ["postgres"] }
+//!
+//! # Postgres over TLS
+//! aj = { version = "0.9.0", features = ["postgres-tls"] }
 //! ```
 //!
 //! # Using Redis Backend
@@ -71,6 +76,21 @@
 //!
 //! AJ::start(Postgres::new("postgres://postgres:postgres@localhost:5432/mydb"));
 //! ```
+//!
+//! Without the `postgres-tls` feature the connection is plaintext: `sslmode=require` cannot
+//! connect at all, and the `sslmode=prefer` default silently falls back to an unencrypted
+//! socket. With `postgres-tls`, `sslmode` in the URL behaves as libpq users expect:
+//!
+//! ```ignore
+//! AJ::start(Postgres::new(
+//!     "postgres://user:pw@db.example.com:5432/mydb?sslmode=require",
+//! ));
+//! ```
+//!
+//! One difference from libpq worth knowing: rustls always verifies the server certificate,
+//! where libpq's `sslmode=require` means "encrypt, do not verify". A private-CA or
+//! self-signed server that `psql` accepts is rejected here unless you pass the CA through
+//! `Postgres::builder(url).tls_config(..)`.
 //!
 //! [More examples](https://github.com/cptrodgers/aj/tree/master/aj/examples)
 //! [Features](https://github.com/cptrodgers/aj/?tab=readme-ov-file#features)
